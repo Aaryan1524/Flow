@@ -1,5 +1,6 @@
 import AppKit
 import CoreGraphics
+import IOKit.hid
 
 /// Watches the Fn / Globe key with a listen-only event tap. Needs the Input Monitoring permission.
 ///
@@ -20,10 +21,16 @@ public final class FnKeyMonitor {
         gesture = HoldGesture(minimumHold: minimumHold)
     }
 
-    public static var hasPermission: Bool { CGPreflightListenEventAccess() }
+    public static var hasPermission: Bool {
+        IOHIDCheckAccess(kIOHIDRequestTypeListenEvent) == kIOHIDAccessTypeGranted || CGPreflightListenEventAccess()
+    }
 
-    /// Shows the system prompt if the permission hasn't been decided yet.
-    public static func requestPermission() { _ = CGRequestListenEventAccess() }
+    /// Shows the system prompt and adds Flow to the Input Monitoring list.
+    /// `CGRequestListenEventAccess` alone didn't get Flow listed on macOS 26, but the HID request does.
+    public static func requestPermission() {
+        _ = IOHIDRequestAccess(kIOHIDRequestTypeListenEvent)
+        _ = CGRequestListenEventAccess()
+    }
 
     public var isRunning: Bool { tap != nil }
 
