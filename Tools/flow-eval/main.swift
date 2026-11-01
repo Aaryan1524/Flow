@@ -9,7 +9,7 @@ import Foundation
 struct Options {
     var clips = "evals/clips"
     var refs = "evals/refs"
-    var engines = ["parakeet-v2", "parakeet-ultra", "parakeet-bark3-clean"]
+    var engines = ["parakeet-v2", "parakeet-ultra", "parakeet-bark3", "parakeet-bark3-clean"]
 }
 
 func parseOptions() -> Options {
@@ -80,7 +80,9 @@ func run() async {
     }
 
     print("clips: \(clips.count)\n")
-    print("engine".padding(toLength: 14, withPad: " ", startingAt: 0) + "WER     p50 s   p95 s   RTFx")
+    // "WER" scores the engine's raw text. "+ITN" first turns spoken numbers into digits
+    // ("four eight one seven" -> "4817"), which is the form the references use.
+    print("engine".padding(toLength: 22, withPad: " ", startingAt: 0) + "WER     +ITN    p50 s   p95 s   RTFx")
 
     for engineName in options.engines {
         let engine = makeEngine(engineName)
@@ -91,6 +93,7 @@ func run() async {
         }
 
         var errors = 0.0
+        var itnErrors = 0.0
         var words = 0
         var times: [Double] = []
         var audioSeconds = 0.0
@@ -101,23 +104,29 @@ func run() async {
             do {
                 let transcript = try await engine.transcribe(samples: samples)
                 let ref = WER.tokens(clip.reference)
-                let rate = WER.rate(reference: clip.reference, hypothesis: transcript.text)
-                errors += rate * Double(ref.count)
+                let normalized = TextNormalizer.shared.normalizeSentence(transcript.text)
+                let rawRate = WER.rate(reference: clip.reference, hypothesis: transcript.text)
+                let rate = WER.rate(reference: clip.reference, hypothesis: normalized)
+                errors += rawRate * Double(ref.count)
+                itnErrors += rate * Double(ref.count)
                 words += ref.count
                 times.append(transcript.seconds)
                 audioSeconds += Double(samples.count) / 16_000
-                worst.append((clip.name, rate, clip.reference, transcript.text))
+                worst.append((clip.name, rate, clip.reference, normalized))
             } catch {
                 print("  \(clip.name): \(engineName) failed: \(error)")
             }
         }
 
         let wer = words == 0 ? 0 : errors / Double(words)
+        let itnWer = words == 0 ? 0 : itnErrors / Double(words)
         let totalTime = times.reduce(0, +)
         let rtfx = totalTime == 0 ? 0 : audioSeconds / totalTime
         print(
-            engineName.padding(toLength: 14, withPad: " ", startingAt: 0)
-                + String(format: "%5.1f%%  %6.3f  %6.3f  %5.0fx", wer * 100, WER.percentile(times, 0.5), WER.percentile(times, 0.95), rtfx)
+            engineName.padding(toLength: 22, withPad: " ", startingAt: 0)
+                + String(
+                    format: "%5.1f%%  %5.1f%%  %6.3f  %6.3f  %5.0fx", wer * 100, itnWer * 100,
+                    WER.percentile(times, 0.5), WER.percentile(times, 0.95), rtfx)
         )
         for item in worst.sorted(by: { $0.1 > $1.1 }).prefix(3) where item.1 > 0 {
             print(String(format: "    %@  %.0f%%\n      ref: %@\n      hyp: %@", item.0, item.1 * 100, item.2.trimmingCharacters(in: .whitespacesAndNewlines), item.3))

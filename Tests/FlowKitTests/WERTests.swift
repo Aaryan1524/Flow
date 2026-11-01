@@ -14,6 +14,13 @@ import Testing
         #expect(WER.tokens("Don't stop — it\u{2019}s fine") == ["don't", "stop", "it's", "fine"])
     }
 
+    @Test func joinsDottedAbbreviations() {
+        #expect(WER.tokens("at 3:30 p.m. today") == ["at", "3", "30", "pm", "today"])
+        #expect(WER.rate(reference: "at 3:30 PM.", hypothesis: "at 3:30 p.m.") == 0)
+        // Digits keep their separating dot on both sides, so versions still compare equally
+        #expect(WER.rate(reference: "version 3.2.1", hypothesis: "version 3.2.1") == 0)
+    }
+
     @Test func countsSubstitutionInsertionAndDeletion() {
         // 1 substitution over 4 reference words
         #expect(WER.rate(reference: "the cat sat down", hypothesis: "the cat sit down") == 0.25)

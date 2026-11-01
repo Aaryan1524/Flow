@@ -7,12 +7,16 @@ public enum WER {
     public static func tokens(_ text: String) -> [String] {
         let lowered = text.lowercased().replacingOccurrences(of: "\u{2019}", with: "'")
         var cleaned = ""
+        var previous: Unicode.Scalar = " "
         for scalar in lowered.unicodeScalars {
             if CharacterSet.alphanumerics.contains(scalar) || scalar == "'" || scalar == "-" {
                 cleaned.unicodeScalars.append(scalar)
+            } else if scalar == "." && CharacterSet.letters.contains(previous) {
+                // "p.m." and "i.d." are one word, not several
             } else {
                 cleaned.append(" ")
             }
+            previous = scalar
         }
         return cleaned
             .split(whereSeparator: \.isWhitespace)
