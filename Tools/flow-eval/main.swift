@@ -74,16 +74,6 @@ func makeEngine(_ name: String, vocabulary: [String] = []) -> Transcriber {
     fail("unknown engine \(name)")
 }
 
-/// Resident memory the process is accountable for, in megabytes.
-func footprintMB() -> Double {
-    var info = task_vm_info_data_t()
-    var count = mach_msg_type_number_t(MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<integer_t>.size)
-    let status = withUnsafeMutablePointer(to: &info) {
-        $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) { task_info(mach_task_self_, task_flavor_t(TASK_VM_INFO), $0, &count) }
-    }
-    return status == KERN_SUCCESS ? Double(info.phys_footprint) / 1_048_576 : 0
-}
-
 struct Clip {
     let name: String
     let url: URL
@@ -130,21 +120,18 @@ func run() async {
     // ("four eight one seven" -> "4817"), which is the form the references use.
     // "recall" is the share of vocabulary terms in the references that the engine's text (after the same
     // number conversion as +ITN) contains as a whole word, ignoring case; "exact" also requires the term's
-    // own capitalisation. Both are counted once per clip and term. "load MB" is how much the process grew
-    // while loading the engine, so it is only clean for the first engine in a run.
+    // own capitalisation. Both are counted once per clip and term.
     let recallHeader = vocabulary.isEmpty ? "" : "recall            exact             "
-    print("engine".padding(toLength: 28, withPad: " ", startingAt: 0) + "WER     +ITN    " + recallHeader + "p50 s   p95 s   RTFx    load MB")
+    print("engine".padding(toLength: 28, withPad: " ", startingAt: 0) + "WER     +ITN    " + recallHeader + "p50 s   p95 s   RTFx")
 
     var runs: [EngineRun] = []
     for engineName in options.engines {
         let engine = makeEngine(engineName, vocabulary: vocabulary)
-        let memoryBefore = footprintMB()
         do { try await engine.prepare() } catch { fail("\(engineName) failed to load: \(error)") }
         // The first call after loading is slower; run it once so timings reflect steady state.
         if let first = clips.first, let samples = samplesByClip[first.name] {
             _ = try? await engine.transcribe(samples: samples)
         }
-        let loadedMB = footprintMB() - memoryBefore
 
         var errors = 0.0
         var itnErrors = 0.0
@@ -192,7 +179,7 @@ func run() async {
             engineName.padding(toLength: 28, withPad: " ", startingAt: 0)
                 + String(format: "%5.1f%%  %5.1f%%  ", wer * 100, itnWer * 100)
                 + recallColumns
-                + String(format: "%6.3f  %6.3f  %5.0fx  %7.0f", WER.percentile(times, 0.5), WER.percentile(times, 0.95), rtfx, loadedMB)
+                + String(format: "%6.3f  %6.3f  %5.0fx", WER.percentile(times, 0.5), WER.percentile(times, 0.95), rtfx)
         )
         for item in worst.sorted(by: { $0.1 > $1.1 }).prefix(3) where item.1 > 0 {
             print(String(format: "    %@  %.0f%%\n      ref: %@\n      hyp: %@", item.0, item.1 * 100, item.2.trimmingCharacters(in: .whitespacesAndNewlines), item.3))
