@@ -440,6 +440,17 @@ public struct RulesCleaner: TextCleaner {
     private static let legitimateDoubles: Set<String> = [
         "had", "that", "very", "really", "bye", "no", "so", "ha", "yeah", "hello", "sorry", "please", "knock", "go",
     ]
+    /// Words people stutter on: pronouns, articles, auxiliaries, prepositions, conjunctions and their contractions.
+    private static let functionWords: Set<String> = [
+        "i", "we", "you", "he", "she", "it", "they", "me", "us", "him", "them", "the", "a", "an", "my", "our", "your",
+        "his", "her", "its", "their", "this", "that", "these", "those", "is", "are", "was", "were", "am", "be", "been",
+        "have", "has", "had", "do", "does", "did", "will", "would", "can", "could", "should", "may", "might", "must",
+        "to", "of", "in", "on", "at", "for", "with", "from", "by", "as", "about", "into", "and", "but", "or", "if", "so",
+        "because", "than", "then", "not", "there", "what", "when", "where", "who", "how", "why", "which", "more",
+        "some", "any", "all", "just", "also", "i'm", "i'll", "i've", "i'd", "we're", "we'll", "we've", "we'd", "you're",
+        "you'll", "you've", "he's", "she's", "it's", "they're", "that's", "there's", "don't", "didn't", "can't",
+        "won't", "isn't",
+    ]
     /// Short function words that stutter across a comma: "I, I think".
     private static let commaStutterWords: Set<String> = [
         "i", "we", "you", "they", "he", "she", "it", "the", "a", "an", "to", "of", "in", "on", "for", "with", "and", "but",
@@ -473,20 +484,7 @@ public struct RulesCleaner: TextCleaner {
             while start < tokens.count {
                 var collapsed = false
                 for length in stride(from: 3, through: 1, by: -1) where start + 2 * length <= tokens.count {
-                    let first = tokens[start..<(start + length)]
-                    let second = tokens[(start + length)..<(start + 2 * length)]
-                    guard first.allSatisfy(\.isWord), second.allSatisfy(\.isWord) else { continue }
-                    guard zip(first, second).allSatisfy({ $0.key == $1.key }) else { continue }
-                    guard !first.contains(where: { $0.core.contains(where: \.isNumber) }) else { continue }
-                    guard !first.contains(where: { !$0.lead.isEmpty }), !second.dropFirst().contains(where: { !$0.lead.isEmpty }) else { continue }
-                    // No punctuation inside or between the blocks, except a comma after a lone function word.
-                    let innerPunctuation = first.dropLast().contains { !$0.trail.isEmpty } || second.dropLast().contains { !$0.trail.isEmpty }
-                    guard !innerPunctuation else { continue }
-                    let lastTrail = first.last?.trail ?? ""
-                    if !lastTrail.isEmpty {
-                        guard length == 1, lastTrail == ",", Self.commaStutterWords.contains(first[start].key) else { continue }
-                    }
-                    if length == 1, lastTrail.isEmpty, Self.legitimateDoubles.contains(first[start].key) { continue }
+                    guard Self.isStutter(tokens, start: start, length: length) else { continue }
 
                     // Keep the second copy, which carries the punctuation, but keep a sentence-initial capital.
                     let wasCapitalized = tokens[start].core.first?.isUppercase == true
@@ -501,6 +499,55 @@ public struct RulesCleaner: TextCleaner {
                 if !collapsed { start += 1 }
             }
         }
+    }
+
+    /// Whether the block of `length` words at `start` is immediately repeated by a stutter rather than on purpose.
+    private static func isStutter(_ tokens: [Token], start: Int, length: Int) -> Bool {
+        let first = tokens[start..<(start + length)]
+        let second = tokens[(start + length)..<(start + 2 * length)]
+        guard first.allSatisfy(\.isWord), second.allSatisfy(\.isWord) else { return false }
+        guard zip(first, second).allSatisfy({ $0.key == $1.key }) else { return false }
+        guard !first.contains(where: { $0.core.contains(where: \.isNumber) }) else { return false }
+        guard !first.contains(where: { !$0.lead.isEmpty }), !second.dropFirst().contains(where: { !$0.lead.isEmpty }) else { return false }
+        // No punctuation inside or between the blocks, except a comma after a lone function word.
+        let innerPunctuation = first.dropLast().contains { !$0.trail.isEmpty } || second.dropLast().contains { !$0.trail.isEmpty }
+        guard !innerPunctuation else { return false }
+        let lastTrail = first.last?.trail ?? ""
+        if !lastTrail.isEmpty {
+            guard length == 1, lastTrail == ",", commaStutterWords.contains(first[start].key) else { return false }
+        }
+
+        // Three or more copies in a row ("ho ho ho") are said on purpose, unless it is a function word ("the the the").
+        var copies = 2
+        var cursor = start + 2 * length
+        while sameBlock(tokens, start, cursor, length) { copies += 1; cursor += length }
+        cursor = start - length
+        while sameBlock(tokens, start, cursor, length) { copies += 1; cursor -= length }
+
+        if length == 1 {
+            let key = first[start].key
+            if lastTrail.isEmpty, legitimateDoubles.contains(key) { return false }
+            let isFunction = isFunctionWord(key)
+            if copies > 2, !isFunction { return false }
+            // "Bora Bora" and "Mahi Mahi" are names, not stutters.
+            if !isFunction, second[start + 1].core.first?.isUppercase == true { return false }
+            return true
+        }
+        // A repeated phrase is a stutter when it starts on a function word ("we should we should"); "New York New
+        // York" and "good morning good morning" are not.
+        guard copies == 2, isFunctionWord(first[start].key) else { return false }
+        return !second.allSatisfy { $0.core.first?.isUppercase == true }
+    }
+
+    private static func sameBlock(_ tokens: [Token], _ a: Int, _ b: Int, _ length: Int) -> Bool {
+        guard a >= 0, b >= 0, a + length <= tokens.count, b + length <= tokens.count else { return false }
+        return (0..<length).allSatisfy {
+            tokens[a + $0].isWord && tokens[b + $0].isWord && tokens[a + $0].key == tokens[b + $0].key
+        }
+    }
+
+    private static func isFunctionWord(_ key: String) -> Bool {
+        functionWords.contains(key.replacingOccurrences(of: "\u{2019}", with: "'"))
     }
 
     /// "w-w-we" becomes "we"; anything that is not a stuttered first letter is left alone.

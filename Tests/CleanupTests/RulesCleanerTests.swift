@@ -328,3 +328,34 @@ extension RulesCleanerTests {
         #expect(clean("hello there\nnew line world") == "Hello there\n\nWorld.")
     }
 }
+
+// MARK: - Repeated names and phrases
+
+extension RulesCleanerTests {
+    @Test func keepsRepeatedProperNouns() {
+        #expect(clean("New York New York is a great song") == "New York New York is a great song")
+        #expect(clean("we went to Bora Bora") == "We went to Bora Bora.")
+        #expect(clean("Mahi Mahi tastes best grilled.") == "Mahi Mahi tastes best grilled.")
+        #expect(clean("They sing Hakuna Matata Hakuna Matata every night.") == "They sing Hakuna Matata Hakuna Matata every night.")
+    }
+
+    @Test func keepsDeliberateTriples() {
+        #expect(clean("ho ho ho merry christmas") == "Ho ho ho merry christmas.")
+        #expect(clean("na na na na goodbye") == "Na na na na goodbye.")
+        #expect(clean("go team go team go team") == "Go team go team go team.")
+    }
+
+    @Test func keepsRepeatedPhrasesWithoutAStutterSignal() {
+        #expect(clean("good morning good morning everyone") == "Good morning good morning everyone.")
+        #expect(clean("thank you thank you so much") == "Thank you thank you so much.")
+    }
+
+    @Test func stillCollapsesRealStutters() {
+        #expect(clean("i i think we should we should call") == "I think we should call.")
+        #expect(clean("the the the server is down again") == "The server is down again.")
+        #expect(clean("I I think so.") == "I think so.")
+        #expect(clean("we need to we need to leave") == "We need to leave.")
+        #expect(clean("send it to the to the team") == "Send it to the team.")
+        #expect(clean("it is it is ready") == "It is ready.")
+    }
+}
