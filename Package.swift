@@ -7,6 +7,7 @@ let package = Package(
     products: [
         .library(name: "FlowKit", targets: ["FlowKit"]),
         .library(name: "ASR", targets: ["ASR"]),
+        .library(name: "Cleanup", targets: ["Cleanup"]),
         .executable(name: "flow-eval", targets: ["flow-eval"]),
         .executable(name: "flow-record", targets: ["flow-record"]),
     ],
@@ -27,10 +28,17 @@ let package = Package(
             path: "Sources/ASR"
         ),
 
+        // Text cleanup behind the TextCleaner protocol: deterministic rules, Apple Foundation Models, Ollama
+        .target(
+            name: "Cleanup",
+            dependencies: ["FlowKit"],
+            path: "Sources/Cleanup"
+        ),
+
         // Command-line harness: runs your clips through every engine, reports WER and latency
         .executableTarget(
             name: "flow-eval",
-            dependencies: ["FlowKit", "ASR"],
+            dependencies: ["FlowKit", "ASR", "Cleanup"],
             path: "Tools/flow-eval"
         ),
 
@@ -38,5 +46,6 @@ let package = Package(
         .executableTarget(name: "flow-record", path: "Tools/flow-record"),
 
         .testTarget(name: "FlowKitTests", dependencies: ["FlowKit"], path: "Tests/FlowKitTests"),
+        .testTarget(name: "CleanupTests", dependencies: ["FlowKit", "Cleanup"], path: "Tests/CleanupTests"),
     ]
 )
