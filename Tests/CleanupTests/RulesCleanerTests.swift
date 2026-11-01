@@ -119,6 +119,11 @@ import Testing
         #expect(clean("Ask Dr. patel about it.") == "Ask Dr. patel about it.")
     }
 
+    @Test func doesNotCapitalizeAfterAnEllipsis() {
+        #expect(clean("Well... maybe it works.") == "Well... maybe it works.")
+        #expect(clean("Well\u{2026} maybe it works.") == "Well\u{2026} maybe it works.")
+    }
+
     @Test func leavesIdentifiersAtSentenceStartAlone() {
         #expect(clean("useAuthSession returns the session. iPhone sales rose.") == "useAuthSession returns the session. iPhone sales rose.")
         #expect(clean("v2 is out. main.swift compiles.") == "v2 is out. main.swift compiles.")
@@ -181,6 +186,16 @@ import Testing
             "Thanks!",
             "It costs $4.50 (plus tax), which is fair.",
             "The array is [1, 2, 3] and the map is {a: 1}.",
+            "- buy milk\n- call the plumber\n- send the invoice",
+            "1. Open the file.\n2. Run the build.\n3. Check the logs.",
+            "Well... maybe. I'm not sure (see the notes below).",
+            "NASA launched the probe from Cape Canaveral on Tuesday.",
+            "Call fetchUser() and then read user.name from the result.",
+            "Do you know what time it is? I do not.",
+            "She replied, \"I know, you know.\" Then she left.",
+            "Use the -v flag, or set LOG_LEVEL=debug in .env.",
+            "That's all, folks!",
+            "I think that that's right, but I'd double-check it.",
         ]
         for sample in samples {
             #expect(clean(sample) == sample, "changed: \(sample)")

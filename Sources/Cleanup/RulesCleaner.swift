@@ -430,7 +430,9 @@ public struct RulesCleaner: TextCleaner {
             }
             let abbreviation = Self.abbreviations.contains(tokens[index].key) || core.contains(".")
             let trail = tokens[index].trail
-            atStart = trail.contains(where: { $0 == "!" || $0 == "?" }) || (Self.endsSentence(trail) && !abbreviation)
+            // "Well... maybe" trails off and carries on; it does not start a new sentence.
+            let trailsOff = trail.contains("...") || trail.contains("\u{2026}")
+            atStart = trail.contains(where: { $0 == "!" || $0 == "?" }) || (Self.endsSentence(trail) && !abbreviation && !trailsOff)
         }
     }
 

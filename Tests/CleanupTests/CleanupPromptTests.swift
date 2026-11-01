@@ -109,6 +109,21 @@ import Testing
         }
     }
 
+    @Test func reportsAnUnreachableServerAsUnavailable() async {
+        let cleaner = OllamaCleaner(model: "gemma3:4b", baseURL: URL(string: "http://127.0.0.1:1")!)
+        do {
+            try await cleaner.prepare()
+            Issue.record("prepare should fail when nothing is listening")
+        } catch let error as CleanupError {
+            guard case .unavailable = error else {
+                Issue.record("expected unavailable, got \(error)")
+                return
+            }
+        } catch {
+            Issue.record("expected a CleanupError, got \(error)")
+        }
+    }
+
     @Test func namesTheCleanerAfterItsModel() {
         #expect(OllamaCleaner(model: "qwen3:4b-instruct").name == "ollama:qwen3:4b-instruct")
     }
