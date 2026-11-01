@@ -550,12 +550,14 @@ public struct RulesCleaner: TextCleaner {
         functionWords.contains(key.replacingOccurrences(of: "\u{2019}", with: "'"))
     }
 
-    /// "w-w-we" becomes "we"; anything that is not a stuttered first letter is left alone.
+    /// "w-w-we" and "w-we" become "we"; anything that is not a stuttered first letter is left alone.
     private static func repairLetterStutter(_ core: String) -> String? {
         let parts = core.split(separator: "-", omittingEmptySubsequences: false).map(String.init)
-        guard parts.count >= 3, let word = parts.last, word.count >= 2, let letter = word.first, letter.isLetter else { return nil }
+        guard parts.count >= 2, let word = parts.last, word.count >= 2, let letter = word.first, letter.isLetter else { return nil }
         let stutters = parts.dropLast()
         guard stutters.allSatisfy({ $0.count == 1 && $0.lowercased() == letter.lowercased() }) else { return nil }
+        // With one fragment the word must be one people stutter on; this keeps "t-test", "D-Day" and "e-mail" whole.
+        guard parts.count >= 3 || isFunctionWord(word.lowercased()) else { return nil }
         return parts[0].first?.isUppercase == true ? capitalizingFirst(word) : word
     }
 
@@ -660,7 +662,9 @@ public struct RulesCleaner: TextCleaner {
             }
             guard tokens[index].isWord else { continue }
             let core = tokens[index].core
-            if atStart, Self.isPlainLowercase(core), !protectedSpellings.contains(core) {
+            if atStart, Self.isPlainLowercase(core), !protectedSpellings.contains(core),
+                !Self.startsCommand(tokens, at: index)
+            {
                 tokens[index].core = Self.capitalizingFirst(core)
             }
             let abbreviation = Self.abbreviations.contains(tokens[index].key) || core.contains(".")
@@ -685,14 +689,17 @@ public struct RulesCleaner: TextCleaner {
         "might", "must", "means", "isn't", "doesn't", "wasn't", "won't",
     ]
 
+    /// Whether the word at `index` is a command-line tool opening a command ("git rebase", not "git is a tool").
+    private static func startsCommand(_ tokens: [Token], at index: Int) -> Bool {
+        guard commandNames.contains(tokens[index].key) else { return false }
+        let second = index + 1 < tokens.count ? tokens[index + 1] : nil
+        return second?.isWord != true || !afterNameWord.contains(second?.key ?? "")
+    }
+
     /// Whether the sentence reads as something typed into a terminal rather than prose.
-    private static func looksLikeCommand(_ sentence: ArraySlice<Token>) -> Bool {
-        guard let first = sentence.first else { return false }
-        if commandNames.contains(first.key) {
-            let second = sentence.dropFirst().first
-            if second?.isWord != true || !afterNameWord.contains(second?.key ?? "") { return true }
-        }
-        return sentence.contains { token in
+    private static func looksLikeCommand(_ tokens: [Token], from start: Int, through end: Int) -> Bool {
+        if startsCommand(tokens, at: start) { return true }
+        return tokens[start...end].contains { token in
             let core = Array(token.core)
             return core.count > 1 && core[0] == "-" && (core[1].isLetter || core[1] == "-")
         }
@@ -753,8 +760,7 @@ public struct RulesCleaner: TextCleaner {
 
         var first = lastIndex
         while first > 0, tokens[first - 1].isWord, !Self.endsSentence(tokens[first - 1].trail) { first -= 1 }
-        let sentence = tokens[first...lastIndex]
-        guard !Self.looksLikeCommand(sentence) else { return }
-        tokens[lastIndex].trail = Self.isPlainQuestion(sentence) ? "?" : "."
+        guard !Self.looksLikeCommand(tokens, from: first, through: lastIndex) else { return }
+        tokens[lastIndex].trail = Self.isPlainQuestion(tokens[first...lastIndex]) ? "?" : "."
     }
 }

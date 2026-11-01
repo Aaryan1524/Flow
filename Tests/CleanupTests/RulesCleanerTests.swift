@@ -412,3 +412,41 @@ extension RulesCleanerTests {
         #expect(clean("i'm sure i'll finish and i've checked") == "I'm sure I'll finish and I've checked.")
     }
 }
+
+// MARK: - Hyphen stutters and command names
+
+extension RulesCleanerTests {
+    @Test func removesAHyphenatedFirstLetterStutter() {
+        #expect(clean("w-we need to to finish the slides before lunch") == "We need to finish the slides before lunch.")
+        #expect(clean("I think t-they already left.") == "I think they already left.")
+        #expect(clean("W-we should go.") == "We should go.")
+    }
+
+    @Test func keepsRealHyphenatedWords() {
+        let samples = [
+            "The t-test showed a difference.",
+            "Check the D-Day schedule.",
+            "Please write an e-mail to the team.",
+            "We re-read and re-recorded the clips.",
+            "She wore a T-shirt and an X-ray badge.",
+            "The C-corp filed on time.",
+        ]
+        for sample in samples {
+            #expect(clean(sample) == sample, "changed: \(sample)")
+        }
+    }
+
+    @Test func leavesCommandNamesLowercaseAtTheStartOfASentence() {
+        #expect(clean("kubectl get pods") == "kubectl get pods")
+        #expect(clean("git rebase main branch") == "git rebase main branch")
+        #expect(clean("docker compose up. then check the logs") == "docker compose up. Then check the logs.")
+        #expect(clean("run it. git status shows the changes") == "Run it. git status shows the changes")
+        #expect(clean("npm install left pad and restart") == "npm install left pad and restart")
+    }
+
+    @Test func stillCapitalizesCommandNamesUsedAsWords() {
+        #expect(clean("git is a version control system") == "Git is a version control system.")
+        #expect(clean("swift is fast") == "Swift is fast.")
+        #expect(clean("brew is installed") == "Brew is installed.")
+    }
+}
