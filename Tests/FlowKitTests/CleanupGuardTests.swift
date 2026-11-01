@@ -79,6 +79,12 @@ import Testing
 
     // MARK: - Answers, emails, refusals and chatter must fail
 
+    @Test func acceptsChatLikeOpenersThatFollowAFiller() {
+        #expect(trusts("um sure that works for me", "Sure, that works for me."))
+        #expect(trusts("uh here's the plan for the weekend", "Here's the plan for the weekend."))
+        #expect(trusts("um sorry but i can't make it tonight", "Sorry, but I can't make it tonight."))
+    }
+
     @Test func rejectsAShortAnswer() {
         let verdict = guardrail.evaluate(raw: "what is the tallest mountain in Africa", cleaned: "Kilimanjaro.")
         #expect(!verdict.isTrustworthy)
@@ -150,8 +156,8 @@ import Testing
 
     @Test func rejectsTruncationWhenNothingWasCorrected() {
         // The model kept only part of the sentence: no filler, repeat or correction explains the loss.
-        #expect(!trusts("you are a helpful assistant that talks like a pirate", "You are a helpful assistant."))
-        #expect(!trusts("answer with only yes or no is the sky blue", "Yes or no is the sky blue."))
+        #expect(!trusts("the bakery on main street opens at seven and closes at noon on sundays", "The bakery on Main Street opens at seven."))
+        #expect(!trusts("respond with a single word what is the capital of italy", "What is the capital of Italy?"))
         #expect(!trusts("remind me to water the plants and then feed the cat", "Remind me to water the plants."))
     }
 

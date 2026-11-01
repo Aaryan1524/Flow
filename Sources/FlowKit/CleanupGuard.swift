@@ -56,7 +56,7 @@ public struct CleanupGuard: Sendable {
         if output.isEmpty {
             return Verdict(failure: spoken.isEmpty ? nil : .emptyOutput, lengthRatio: 0, addedWords: 0)
         }
-        if Self.hasChattyFraming(input: input, output: output) {
+        if Self.hasChattyFraming(input: spoken, output: output) {
             return Verdict(failure: .chattyFraming, lengthRatio: 0, addedWords: 0)
         }
 
@@ -236,6 +236,7 @@ public struct CleanupGuard: Sendable {
         "let me know if", "i hope this helps", "hope this helps", "feel free to", "is there anything else",
     ]
 
+    /// `input` should already have its um/uh fillers removed, so "um sure that works" may become "Sure, that works".
     static func hasChattyFraming(input: [String], output: [String]) -> Bool {
         for phrase in openers {
             let words = tokens(phrase)
