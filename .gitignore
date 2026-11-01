@@ -1,0 +1,30 @@
+# Build
+.build/
+DerivedData/
+*.xcodeproj
+*.xcworkspace
+.swiftpm/
+xcuserdata/
+
+# Personal data: this repo is public, so nothing recorded or dictated may be committed
+evals/clips/
+evals/refs/
+evals/results/
+*.wav
+*.m4a
+*.caf
+*.aiff
+history*.jsonl
+dictionary*.json
+
+# Models and secrets
+*.mlmodelc
+*.gguf
+*.bin
+.env
+.env.*
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
