@@ -12,7 +12,7 @@ let package = Package(
         .executable(name: "flow-record", targets: ["flow-record"]),
     ],
     dependencies: [
-        .package(url: "https://github.com/FluidInference/FluidAudio.git", from: "0.18.0"),
+        .package(url: "https://github.com/FluidInference/FluidAudio.git", .upToNextMinor(from: "0.18.0")),
     ],
     targets: [
         // Shared types and pure logic (no system dependencies, fully unit-testable)

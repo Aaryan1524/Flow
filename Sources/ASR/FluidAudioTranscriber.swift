@@ -3,7 +3,7 @@ import FluidAudio
 import Foundation
 
 /// Parakeet-family models running on the Neural Engine through FluidAudio.
-public final class FluidAudioTranscriber: Transcriber, @unchecked Sendable {
+public final class FluidAudioTranscriber: Transcriber {
     public enum Model: String, CaseIterable, Sendable {
         case v2  // English only
         case v3  // 25 European languages

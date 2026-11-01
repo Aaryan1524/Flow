@@ -103,7 +103,7 @@ public struct CleanupGuard: Sendable {
 
     // MARK: - Matching
 
-    static let fillers: Set<String> = ["um", "uh", "uhm", "umm", "uhh", "er", "erm", "hm", "hmm", "mm", "mmm"]
+    static let fillers: Set<String> = ["um", "uh", "uhm", "umm", "uhh", "er", "erm", "hm", "hmm"]
 
     /// `WER.tokens` with apostrophes dropped and hyphenated words split, so "it's" meets "its" and
     /// "twenty-five" meets "twenty five".

@@ -275,9 +275,12 @@ public struct RulesCleaner: TextCleaner {
     private static func fillerSpan(_ tokens: [Token], at index: Int) -> Int {
         let token = tokens[index]
         guard token.lead.isEmpty else { return 0 }
-        if isFillerWord(token.core) { return 1 }
-
         let previous = index > 0 ? tokens[index - 1] : nil
+        if isFillerWord(token.core) {
+            // "10 mm" is a unit, not a hum.
+            if token.key.allSatisfy({ $0 == "m" }), previous?.core.contains(where: \.isNumber) == true { return 0 }
+            return 1
+        }
         let afterComma = previous?.isWord == true && previous?.trail == ","
         let startsSentence = previous == nil || previous?.isBreak == true || (previous?.isWord == true && endsSentence(previous?.trail ?? ""))
         let hasNext = index + 1 < tokens.count && tokens[index + 1].isWord

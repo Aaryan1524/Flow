@@ -14,6 +14,12 @@ evals/results/
 *.m4a
 *.caf
 *.aiff
+*.aif
+*.mp3
+*.mp4
+*.flac
+*.ogg
+*.opus
 history*.jsonl
 dictionary*.json
 

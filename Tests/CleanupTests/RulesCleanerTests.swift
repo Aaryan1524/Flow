@@ -13,6 +13,11 @@ import Testing
         #expect(clean("so ummm that works hmm for me") == "So that works for me.")
     }
 
+    @Test func keepsMillimetresAfterANumber() {
+        #expect(clean("The bolt is 10 mm wide.") == "The bolt is 10 mm wide.")
+        #expect(clean("mm okay that works") == "Okay that works.")
+    }
+
     @Test func removesFillersAndTheirCommas() {
         #expect(clean("Um, I think we should, uh, go to the store.") == "I think we should go to the store.")
         #expect(clean("It works, um.") == "It works.")

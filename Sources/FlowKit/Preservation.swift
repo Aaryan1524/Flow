@@ -16,7 +16,7 @@ public enum Preservation {
 
     /// Words a faithful cleanup removes without any correction cue.
     static let discourseWords: Set<String> = [
-        "um", "umm", "uh", "uhh", "er", "erm", "hmm", "mm", "mhm", "ah", "you", "know", "like", "so", "well", "basically",
+        "um", "umm", "uh", "uhh", "er", "erm", "hmm", "mhm", "ah", "you", "know", "like", "so", "well", "basically",
     ]
 
     static let spokenPunctuationWords: Set<String> = Set(CleanupGuard.spokenPunctuation.flatMap { $0 })

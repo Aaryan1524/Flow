@@ -120,7 +120,7 @@ func requestMicrophone() async -> Bool {
 }
 
 guard let scriptText = try? String(contentsOfFile: scriptPath, encoding: .utf8) else { fail("cannot read \(scriptPath)") }
-let lines = scriptText.split(separator: "\n").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+let lines = scriptText.split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
 try? FileManager.default.createDirectory(atPath: clipsDir, withIntermediateDirectories: true)
 try? FileManager.default.createDirectory(atPath: refsDir, withIntermediateDirectories: true)
 
@@ -148,9 +148,17 @@ while index < lines.count {
         index += 1
         continue
     }
-    if command == "r", index > 0 {
+    if command == "r" {
+        guard index > 0 else {
+            print("  nothing to redo yet\n")
+            continue
+        }
         try? FileManager.default.removeItem(at: clipURL(index - 1))
         index -= 1
+        continue
+    }
+    if !command.isEmpty {
+        print("  unknown command '\(command)'\n")
         continue
     }
     do {
