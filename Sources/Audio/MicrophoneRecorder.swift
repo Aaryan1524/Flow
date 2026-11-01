@@ -62,9 +62,11 @@ public final class MicrophoneRecorder: @unchecked Sendable {
         guard !isRecording else { throw RecorderError.alreadyRecording }
         let engine = AVAudioEngine()
         let inFormat = engine.inputNode.outputFormat(forBus: 0)
-        guard inFormat.sampleRate > 0, let converter = AVAudioConverter(from: inFormat, to: outFormat) else {
+        guard inFormat.sampleRate > 0, inFormat.channelCount > 0, let converter = AVAudioConverter(from: inFormat, to: outFormat) else {
             throw RecorderError.noInput
         }
+        // Without this only the first channel is kept, so a mic on input 2 of an audio interface sounds silent.
+        converter.downmix = true
         let inputRate = inFormat.sampleRate
         lock.lock()
         samples = []
@@ -94,7 +96,9 @@ public final class MicrophoneRecorder: @unchecked Sendable {
         engine?.stop()
         lock.lock()
         defer { lock.unlock() }
-        return samples
+        let recorded = samples
+        samples = []  // don't keep minutes of someone's voice in memory
+        return recorded
     }
 
     /// Stops capturing and throws the audio away.

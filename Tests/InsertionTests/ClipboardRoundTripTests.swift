@@ -29,6 +29,30 @@ import Testing
         #expect(pasteboard.pasteboardItems?.first?.data(forType: custom) == Data([1, 2, 3, 4]))
     }
 
+    @Test func restoresTypesInTheirOriginalOrder() {
+        let pasteboard = makePasteboard()
+        defer { pasteboard.releaseGlobally() }
+
+        let types = ["com.example.b", "public.html", "com.example.a", "public.utf8-plain-text"].map { NSPasteboard.PasteboardType($0) }
+        let item = NSPasteboardItem()
+        for type in types { item.setData(Data(type.rawValue.utf8), forType: type) }
+        pasteboard.clearContents()
+        pasteboard.writeObjects([item])
+        let original = pasteboard.pasteboardItems?.first?.types
+
+        let saved = ClipboardPaster.snapshot(of: pasteboard)
+        pasteboard.clearContents()
+        ClipboardPaster.restore(saved, to: pasteboard)
+
+        #expect(pasteboard.pasteboardItems?.first?.types == original)
+    }
+
+    @Test func logValuesDoNotDependOnSwiftTypeNames() {
+        #expect(InsertionResult.pasted.logValue == "pasted")
+        #expect(InsertionResult.notPasted(.appChanged).logValue == "notPasted:appChanged")
+        #expect(InsertionResult.skipped(.secureInput).logValue == "skipped:secureInput")
+    }
+
     @Test func restoresSeveralItems() {
         let pasteboard = makePasteboard()
         defer { pasteboard.releaseGlobally() }

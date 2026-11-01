@@ -75,6 +75,9 @@ public actor HistoryLog {
             // Create with the final permissions so the text is never readable by others, even briefly.
             fileManager.createFile(atPath: url.path, contents: nil, attributes: [.posixPermissions: 0o600])
         }
+        // Tighten anything that already existed with looser permissions.
+        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: url.deletingLastPathComponent().path)
+        try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
         let handle = try FileHandle(forWritingTo: url)
         defer { try? handle.close() }
         try handle.seekToEnd()

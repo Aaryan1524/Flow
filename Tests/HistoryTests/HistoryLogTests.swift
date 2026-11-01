@@ -36,6 +36,19 @@ import Testing
         #expect(folder == 0o700)
     }
 
+    @Test func tightensPermissionsOfAnExistingLooseFileAndFolder() async throws {
+        let (log, url) = makeLog()
+        let folder = url.deletingLastPathComponent()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o755])
+        FileManager.default.createFile(atPath: url.path, contents: nil, attributes: [.posixPermissions: 0o644])
+
+        try await log.append(entry("private"))
+
+        #expect(try FileManager.default.attributesOfItem(atPath: url.path)[.posixPermissions] as? Int == 0o600)
+        #expect(try FileManager.default.attributesOfItem(atPath: folder.path)[.posixPermissions] as? Int == 0o700)
+    }
+
     @Test func pruneRemovesOnlyOldEntriesAndKeepsPermissions() async throws {
         let (log, url) = makeLog(retentionDays: 30)
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }

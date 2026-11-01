@@ -51,6 +51,15 @@ import Testing
         #expect(gesture.handle(.fnUp, at: 11) == .finished)
     }
 
+    @Test func aStuckHoldIsClearedByAFreshGesture() {
+        // Fn went down and the release was lost (sleep, lock). Without a reset the next press is ignored.
+        var gesture = HoldGesture()
+        _ = gesture.handle(.fnDown, at: 1)
+        #expect(gesture.handle(.fnDown, at: 100) == nil)
+        gesture = HoldGesture()
+        #expect(gesture.handle(.fnDown, at: 100) == .started)
+    }
+
     @Test func tracksHoldingState() {
         var gesture = HoldGesture()
         #expect(!gesture.isHolding)

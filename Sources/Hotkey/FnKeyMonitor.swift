@@ -36,6 +36,11 @@ public final class FnKeyMonitor {
             guard let userInfo else { return Unmanaged.passUnretained(event) }
             let monitor = Unmanaged<FnKeyMonitor>.fromOpaque(userInfo).takeUnretainedValue()
             // The tap's run loop source is on the main run loop, so this runs on the main thread.
+            if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+                // These carry no real event, so don't touch it.
+                MainActor.assumeIsolated { monitor.tapWasDisabled() }
+                return nil
+            }
             MainActor.assumeIsolated { monitor.receive(type: type, event: event) }
             return Unmanaged.passUnretained(event)
         }
@@ -54,34 +59,48 @@ public final class FnKeyMonitor {
 
     public func stop() {
         if let source { CFRunLoopRemoveSource(CFRunLoopGetMain(), source, .commonModes) }
-        if let tap { CGEvent.tapEnable(tap: tap, enable: false) }
+        if let tap {
+            CGEvent.tapEnable(tap: tap, enable: false)
+            CFMachPortInvalidate(tap)
+        }
         tap = nil
         source = nil
+        reset()
+    }
+
+    /// Forgets any key that is currently held, e.g. after sleep or a screen lock, when the release may never arrive.
+    public func reset() {
         gesture = HoldGesture(minimumHold: gesture.minimumHold)
     }
 
+    /// macOS turns the tap off if the callback is slow. Turn it back on, and if the Fn release
+    /// happened while it was off, finish the gesture so recording can't get stuck.
+    private func tapWasDisabled() {
+        if let tap { CGEvent.tapEnable(tap: tap, enable: true) }
+        if gesture.isHolding, !CGEventSource.flagsState(.combinedSessionState).contains(.maskSecondaryFn) {
+            handle(.fnUp, at: ProcessInfo.processInfo.systemUptime)
+        }
+    }
+
     private func receive(type: CGEventType, event: CGEvent) {
+        // Use when the key was pressed, not when this code ran, so a busy main thread can't stretch a tap into a hold.
+        let time = Double(event.timestamp) / 1_000_000_000
         switch type {
-        case .tapDisabledByTimeout, .tapDisabledByUserInput:
-            // macOS turns the tap off if the callback is slow. Turn it back on, and if the Fn release
-            // happened while it was off, finish the gesture so recording can't get stuck.
-            if let tap { CGEvent.tapEnable(tap: tap, enable: true) }
-            if gesture.isHolding, !CGEventSource.flagsState(.combinedSessionState).contains(.maskSecondaryFn) {
-                handle(.fnUp)
-            }
         case .flagsChanged:
             guard event.getIntegerValueField(.keyboardEventKeycode) == Self.fnKeyCode else { return }
-            handle(event.flags.contains(.maskSecondaryFn) ? .fnDown : .fnUp)
+            handle(event.flags.contains(.maskSecondaryFn) ? .fnDown : .fnUp, at: time)
         case .keyDown:
+            // Flow presses ⌘V itself to paste. That must not look like the user pressing a key.
+            guard event.getIntegerValueField(.eventSourceUnixProcessID) != Int64(getpid()) else { return }
             let isEscape = event.getIntegerValueField(.keyboardEventKeycode) == Self.escapeKeyCode
-            handle(isEscape ? .escape : .otherKeyDown)
+            handle(isEscape ? .escape : .otherKeyDown, at: time)
         default:
             break
         }
     }
 
-    private func handle(_ input: HotkeyInput) {
-        if let result = gesture.handle(input, at: ProcessInfo.processInfo.systemUptime) {
+    private func handle(_ input: HotkeyInput, at time: TimeInterval) {
+        if let result = gesture.handle(input, at: time) {
             onEvent?(result)
         }
     }

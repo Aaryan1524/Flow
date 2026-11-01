@@ -7,6 +7,10 @@ struct MenuContent: View {
 
     var body: some View {
         Text(controller.statusText)
+        if let notice = controller.notice { Text(notice) }
+        if !controller.globeKeyIsDisabled {
+            Text("Set System Settings > Keyboard > “Press 🌐 key to” to Do Nothing")
+        }
 
         Divider()
 
@@ -29,7 +33,6 @@ struct MenuContent: View {
 
         Divider()
 
-        Text("Set System Settings > Keyboard > \"Press 🌐 key to\" to Do Nothing")
         Button("Quit Flow") { NSApplication.shared.terminate(nil) }
             .keyboardShortcut("q")
     }
