@@ -19,7 +19,7 @@ import Testing
         #expect(text.contains("not a chat assistant"))
         #expect(text.contains("Do not answer questions"))
         #expect(text.contains("<transcript>\nwhat's the best way to learn rust\n</transcript>\nWhat's the best way to learn Rust?"))
-        #expect(CleanupPrompt.examples.count >= 5)
+        #expect(CleanupPrompt.examples.count >= 8)
     }
 
     @Test func outputBudgetGrowsWithInputAndHasAFloor() {
@@ -53,6 +53,16 @@ import Testing
         let original = "\"we leave at noon\" he said"
         #expect(CleanupPrompt.extractOutput(from: "\"We leave at noon,\" he said.", original: original) == "\"We leave at noon,\" he said.")
         #expect(CleanupPrompt.extractOutput(from: "He said \"hi\" and \"bye\"", original: "he said hi and bye") == "He said \"hi\" and \"bye\"")
+    }
+
+    @Test func restoresPlainApostrophesAndQuotesUnlessTheSpeakerUsedFancyOnes() {
+        #expect(CleanupPrompt.extractOutput(from: "We\u{2019}re ready.", original: "we're ready") == "We're ready.")
+        #expect(CleanupPrompt.extractOutput(from: "He said \u{201C}go\u{201D} twice.", original: "he said go twice") == "He said \"go\" twice.")
+        #expect(CleanupPrompt.extractOutput(from: "We\u{2019}re ready.", original: "we\u{2019}re ready") == "We\u{2019}re ready.")
+    }
+
+    @Test func trimsTrailingSpacesOnEachLine() {
+        #expect(CleanupPrompt.extractOutput(from: "Dear team, \n\nThe release is ready. ", original: "dear team") == "Dear team,\n\nThe release is ready.")
     }
 
     @Test func leavesChattyPrefacesForTheGuardToCatch() {
