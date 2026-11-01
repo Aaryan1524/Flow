@@ -8,6 +8,7 @@ let package = Package(
         .library(name: "FlowKit", targets: ["FlowKit"]),
         .library(name: "ASR", targets: ["ASR"]),
         .executable(name: "flow-eval", targets: ["flow-eval"]),
+        .executable(name: "flow-record", targets: ["flow-record"]),
     ],
     dependencies: [
         .package(url: "https://github.com/FluidInference/FluidAudio.git", from: "0.18.0"),
@@ -32,6 +33,9 @@ let package = Package(
             dependencies: ["FlowKit", "ASR"],
             path: "Tools/flow-eval"
         ),
+
+        // Records your own voice reading evals/script.txt, to build the test set
+        .executableTarget(name: "flow-record", path: "Tools/flow-record"),
 
         .testTarget(name: "FlowKitTests", dependencies: ["FlowKit"], path: "Tests/FlowKitTests"),
     ]
