@@ -5,6 +5,7 @@ struct MenuContent: View {
     let controller: DictationController
     @AppStorage("saveHistory") private var saveHistory = true
     @AppStorage("inputDeviceUID") private var inputDeviceUID = ""
+    @AppStorage("cleanupMode") private var cleanupMode = "rulesAndAI"
 
     var body: some View {
         Text(controller.statusText)
@@ -37,8 +38,16 @@ struct MenuContent: View {
 
         Divider()
 
+        Picker("Cleanup", selection: $cleanupMode) {
+            Text("Off (raw text)").tag("off")
+            Text("Rules only (instant)").tag("rules")
+            Text("Rules + AI (recommended)").tag("rulesAndAI")
+        }
+
         Button("Paste last transcript") { controller.pasteLastTranscript() }
             .disabled(controller.lastTranscript.isEmpty)
+        Button("Paste raw version of last dictation") { controller.pasteLastRaw() }
+            .disabled(!controller.canPasteRaw)
         Toggle("Save dictation history", isOn: $saveHistory)
         Button("Show history in Finder") { controller.revealHistory() }
 

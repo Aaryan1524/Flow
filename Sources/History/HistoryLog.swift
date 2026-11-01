@@ -19,10 +19,17 @@ public struct HistoryEntry: Codable, Sendable, Equatable {
     public var insertMs: Double
     /// From releasing Fn to the text being in place. This is the number that feels like speed.
     public var releaseToTextMs: Double
+    /// Added with cleanup. Optional so older history files still load.
+    public var cleanupMode: String?
+    public var cleanupMs: Double?
+    public var usedAI: Bool?
+    /// Why the AI didn't contribute ("not needed", "rejected by the safety check", ...).
+    public var aiSkippedBecause: String?
 
     public init(
         timestamp: Date = Date(), app: String?, engine: String, rawText: String, finalText: String, outcome: String,
-        audioSeconds: Double, firstAudioMs: Double?, transcribeMs: Double, insertMs: Double, releaseToTextMs: Double
+        audioSeconds: Double, firstAudioMs: Double?, transcribeMs: Double, insertMs: Double, releaseToTextMs: Double,
+        cleanupMode: String? = nil, cleanupMs: Double? = nil, usedAI: Bool? = nil, aiSkippedBecause: String? = nil
     ) {
         self.timestamp = timestamp
         self.app = app
@@ -35,6 +42,10 @@ public struct HistoryEntry: Codable, Sendable, Equatable {
         self.transcribeMs = transcribeMs
         self.insertMs = insertMs
         self.releaseToTextMs = releaseToTextMs
+        self.cleanupMode = cleanupMode
+        self.cleanupMs = cleanupMs
+        self.usedAI = usedAI
+        self.aiSkippedBecause = aiSkippedBecause
     }
 }
 
