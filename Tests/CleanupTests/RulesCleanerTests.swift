@@ -226,3 +226,36 @@ import Testing
         #expect(rules.name == "rules")
     }
 }
+
+// MARK: - Whitespace contract
+
+extension RulesCleanerTests {
+    @Test func keepsIndentationTabsAndBlankLines() {
+        let samples = [
+            "Steps:\n    First, open the file.\n    Second, run the build.",
+            "Notes\n\n\n\nBody after three blank lines.",
+            "Item one.\n\n  - nested item\n  - another item\n\nDone.",
+            "Name:\tDana\nRole:\tEditor",
+            "Column A\tColumn B\tColumn C",
+            "  Indented first line.",
+        ]
+        for sample in samples {
+            #expect(clean(sample) == sample, "changed: \(sample.debugDescription)")
+        }
+    }
+
+    @Test func normalisesLineEndingsAndSpaceRunsOnly() {
+        #expect(clean("Line one.\r\nLine two.") == "Line one.\nLine two.")
+        #expect(clean("Too    many   spaces here.") == "Too many spaces here.")
+        #expect(clean("Ends with spaces.   \nNext line.") == "Ends with spaces.\nNext line.")
+        #expect(clean("Hello there.\n\n") == "Hello there.")
+    }
+
+    @Test func returnsTextWithoutWordsUnchanged() {
+        #expect(clean("...") == "...")
+        #expect(clean("?") == "?")
+        #expect(clean("!!") == "!!")
+        #expect(clean("\u{2026}") == "\u{2026}")
+        #expect(clean("  ...  ") == "...")
+    }
+}

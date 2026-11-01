@@ -7,6 +7,10 @@ import Foundation
 /// words, turns clearly spoken punctuation and line commands into the real thing, restores sentence
 /// capitalization and spacing, and swaps dictionary terms for their canonical spelling. Text that is
 /// already clean passes through unchanged. It does not resolve self-corrections; that takes a model.
+///
+/// Whitespace contract: line structure survives (every blank line, each line's leading indentation, tabs between
+/// words). Only these are normalized: CRLF becomes LF, a run of spaces inside a line becomes one space, and
+/// trailing whitespace is dropped. Input with no words in it ("...", "?") is returned trimmed but otherwise as is.
 public struct RulesCleaner: TextCleaner {
     public let name = "rules"
 
@@ -40,7 +44,7 @@ public struct RulesCleaner: TextCleaner {
 
     public func cleaned(_ raw: String) -> String {
         var tokens = Self.tokenize(raw)
-        guard tokens.contains(where: \.isWord) else { return "" }
+        guard tokens.contains(where: \.isWord) else { return raw.trimmingCharacters(in: .whitespacesAndNewlines) }
         let wasUncased = tokens.first(where: \.isWord)?.core.first?.isLowercase == true
 
         applySpokenCommands(&tokens)
@@ -62,6 +66,11 @@ public struct RulesCleaner: TextCleaner {
         var core = ""
         var trail = ""
         var breaks = 0
+        /// The gap before this token on its line: a single space, or the original run when it held a tab.
+        var space = " "
+        /// Whether the token began a line in the input, and the indentation it had there.
+        var startsLine = false
+        var indent = ""
 
         var isBreak: Bool { breaks > 0 }
         var isWord: Bool { breaks == 0 && !core.isEmpty }
@@ -76,22 +85,36 @@ public struct RulesCleaner: TextCleaner {
     private static func tokenize(_ text: String) -> [Token] {
         var tokens: [Token] = []
         var current = ""
+        var gap = ""
         var pendingBreaks = 0
+        var atLineStart = true
 
         func flush() {
             guard !current.isEmpty else { return }
-            if pendingBreaks > 0, !tokens.isEmpty { tokens.append(Token(breaks: min(pendingBreaks, 2))) }
-            pendingBreaks = 0
-            tokens.append(split(current))
+            if pendingBreaks > 0, !tokens.isEmpty { tokens.append(Token(breaks: pendingBreaks)) }
+            var token = split(current)
+            token.startsLine = atLineStart
+            if atLineStart {
+                token.indent = gap
+            } else if gap.contains("\t") {
+                token.space = gap
+            }
+            tokens.append(token)
             current = ""
+            gap = ""
+            pendingBreaks = 0
+            atLineStart = false
         }
 
         for character in text {
             if character.isNewline {
                 flush()
                 pendingBreaks += 1
+                gap = ""
+                atLineStart = true
             } else if character.isWhitespace {
                 flush()
+                gap.append(character)
             } else {
                 current.append(character)
             }
@@ -127,18 +150,25 @@ public struct RulesCleaner: TextCleaner {
 
     private static func render(_ tokens: [Token]) -> String {
         var output = ""
-        var needsSpace = false
+        var atLineStart = true
         for token in tokens {
             if token.isBreak {
                 output += String(repeating: "\n", count: token.breaks)
-                needsSpace = false
-            } else {
-                if needsSpace { output += " " }
-                output += token.lead + token.core + token.trail
-                needsSpace = true
+                atLineStart = true
+                continue
             }
+            if atLineStart {
+                if token.startsLine { output += token.indent }
+            } else {
+                output += token.space
+            }
+            output += token.lead + token.core + token.trail
+            atLineStart = false
         }
-        return output.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Keep the first line's indentation; only blank lines before it and whitespace after the end go.
+        while output.first?.isNewline == true { output.removeFirst() }
+        while output.last?.isWhitespace == true { output.removeLast() }
+        return output
     }
 
     private static func endsSentence(_ trail: String) -> Bool {
@@ -388,7 +418,10 @@ public struct RulesCleaner: TextCleaner {
                     token.isWord && token.key == entry.words[offset] && (offset == entry.words.count - 1 || token.trail.isEmpty)
                 }
                 guard matches, let first = span.first, let last = span.last else { continue }
-                tokens.replaceSubrange(i..<(i + entry.words.count), with: [Token(lead: first.lead, core: entry.canonical, trail: last.trail)])
+                var replacement = first
+                replacement.core = entry.canonical
+                replacement.trail = last.trail
+                tokens.replaceSubrange(i..<(i + entry.words.count), with: [replacement])
                 break
             }
             i += 1
