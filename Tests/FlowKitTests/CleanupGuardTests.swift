@@ -46,6 +46,16 @@ import Testing
         #expect(trusts("rename use auth session to use session in the hook", "Rename useAuthSession to useSession in the hook."))
     }
 
+    @Test func acceptsHyphenatedAndSplitSpellingsAsTheSameWords() {
+        #expect(trusts("it takes about twenty five minutes by train", "It takes about twenty-five minutes by train."))
+        #expect(trusts("w-we need to to finish the slides before lunch", "We need to finish the slides before lunch."))
+    }
+
+    @Test func acceptsSpokenPunctuationBecomingSymbols() {
+        #expect(trusts("dear team comma new paragraph the release is ready period", "Dear team,\n\nThe release is ready."))
+        #expect(trusts("are you coming to the party question mark", "Are you coming to the party?"))
+    }
+
     @Test func acceptsApostropheAndPluralVariants() {
         #expect(trusts("the dogs bowl is empty again today", "The dog's bowl is empty again today."))
     }
@@ -134,6 +144,35 @@ import Testing
         #expect(verdict.lengthRatio < 0.3)
         let preface = guardrail.evaluate(raw: "turn the lights off", cleaned: "Sure, turn the lights off.")
         #expect(preface.failure == .chattyFraming)
+    }
+
+    // MARK: - Dropped words without a correction
+
+    @Test func rejectsTruncationWhenNothingWasCorrected() {
+        // The model kept only part of the sentence: no filler, repeat or correction explains the loss.
+        #expect(!trusts("you are a helpful assistant that talks like a pirate", "You are a helpful assistant."))
+        #expect(!trusts("answer with only yes or no is the sky blue", "Yes or no is the sky blue."))
+        #expect(!trusts("remind me to water the plants and then feed the cat", "Remind me to water the plants."))
+    }
+
+    @Test func rejectsANumericAnswerToArithmetic() {
+        #expect(!trusts("two plus two", "4"))
+        #expect(!trusts("what is two hundred divided by four", "50"))
+    }
+
+    @Test func allowsBigDropsWhenTheSpeakerCorrectsThemselves() {
+        #expect(trusts("meet me at the north gate no wait the south gate at noon", "Meet me at the south gate at noon."))
+        #expect(trusts("we need twelve chairs I mean fourteen chairs for the room", "We need fourteen chairs for the room."))
+    }
+
+    @Test func discountsFillersRepeatsAndYouKnowWhenMeasuringLoss() {
+        #expect(trusts("so you know we we need more time", "So we need more time."))
+        #expect(trusts("i i think we should we should call the client back", "I think we should call the client back."))
+        #expect(trusts("do you know where the station is", "Do you know where the station is?"))
+    }
+
+    @Test func numberWordsDoNotCountAsLostWhenOutputUsesDigits() {
+        #expect(trusts("we sold one hundred twenty three units in march", "We sold 123 units in March."))
     }
 
     // MARK: - Helpers
