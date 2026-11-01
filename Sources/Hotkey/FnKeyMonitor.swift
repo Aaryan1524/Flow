@@ -83,8 +83,9 @@ public final class FnKeyMonitor {
     }
 
     private func receive(type: CGEventType, event: CGEvent) {
-        // Use when the key was pressed, not when this code ran, so a busy main thread can't stretch a tap into a hold.
-        let time = Double(event.timestamp) / 1_000_000_000
+        // Not CGEvent.timestamp: on Apple Silicon its unit isn't reliably nanoseconds, and a wrong unit would make
+        // every hold look too short. The system uptime is the same clock the rest of the gesture logic uses.
+        let time = ProcessInfo.processInfo.systemUptime
         switch type {
         case .flagsChanged:
             guard event.getIntegerValueField(.keyboardEventKeycode) == Self.fnKeyCode else { return }
