@@ -1,0 +1,188 @@
+import AppKit
+import ApplicationServices
+import Carbon.HIToolbox
+
+public enum InsertionResult: Sendable, Equatable {
+    case pasted
+    /// Nothing was pasted and the clipboard is exactly as it was before. Flow still has the text.
+    case notPasted(Reason)
+    /// Nothing was typed and the clipboard was left alone.
+    case skipped(SkipReason)
+
+    public enum Reason: Sendable, Equatable {
+        /// You switched apps while the text was being produced.
+        case appChanged
+        /// Flow doesn't have the Accessibility permission, so it can't press ⌘V for you.
+        case noAccessibility
+        /// ⌘V was sent but no app read the clipboard, e.g. there was no text field in focus.
+        case pasteNotConfirmed
+        /// Another insertion was still in progress.
+        case busy
+    }
+
+    public enum SkipReason: Sendable, Equatable {
+        /// A password field (or another secure input) is active.
+        case secureInput
+        case emptyText
+    }
+
+    /// Stable text for logs. Doesn't depend on Swift type names, so renaming a type can't change saved data.
+    public var logValue: String {
+        switch self {
+        case .pasted: return "pasted"
+        case .notPasted(let reason): return "notPasted:\(reason)"
+        case .skipped(let reason): return "skipped:\(reason)"
+        }
+    }
+}
+
+/// Puts text at the cursor of whatever app is in front by pressing ⌘V, then gives you your clipboard back.
+///
+/// The clipboard item is written with a lazy data provider, so macOS only asks for the text when the target
+/// app actually pastes. That read is the signal that it is safe to restore the old clipboard, which avoids
+/// guessing a delay. The item is also marked transient and concealed so clipboard managers ignore it.
+///
+/// The clipboard is only ever changed for the moment of the paste. Every other path leaves it untouched.
+@MainActor
+public final class ClipboardPaster {
+    public static var hasAccessibilityPermission: Bool { AXIsProcessTrusted() }
+
+    /// Shows the system prompt that sends the user to the Accessibility settings.
+    public static func requestAccessibilityPermission() {
+        let key = "AXTrustedCheckOptionPrompt" as CFString
+        _ = AXIsProcessTrustedWithOptions([key: true] as CFDictionary)
+    }
+
+    public static func frontmostBundleID() -> String? {
+        NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+    }
+
+    /// How long to wait for the target app to read the clipboard before giving up.
+    private let readTimeout: Duration
+    /// Grace period after the read, so a slow app finishes reading every type before the clipboard changes back.
+    private let restoreDelay: Duration
+    private let pasteboard: NSPasteboard
+    private var isInserting = false
+
+    public init(
+        readTimeout: Duration = .milliseconds(1500), restoreDelay: Duration = .milliseconds(300),
+        pasteboard: NSPasteboard = .general
+    ) {
+        self.readTimeout = readTimeout
+        self.restoreDelay = restoreDelay
+        self.pasteboard = pasteboard
+    }
+
+    /// - Parameter targetApp: bundle identifier of the app that was in front when you started talking.
+    ///   If a different app is in front now, nothing is pasted.
+    public func insert(_ text: String, into targetApp: String?) async -> InsertionResult {
+        guard !text.isEmpty else { return .skipped(.emptyText) }
+        // Never type into a password field. The clipboard stays untouched too.
+        guard !IsSecureEventInputEnabled() else { return .skipped(.secureInput) }
+        // Two insertions at once would save each other's temporary clipboard as "yours".
+        guard !isInserting else { return .notPasted(.busy) }
+        isInserting = true
+        defer { isInserting = false }
+
+        if let targetApp, Self.frontmostBundleID() != targetApp { return .notPasted(.appChanged) }
+        guard Self.hasAccessibilityPermission else { return .notPasted(.noAccessibility) }
+
+        let saved = Self.snapshot(of: pasteboard)
+        let provider = TextProvider(text: text)
+        write(provider: provider)
+        let changeCountAfterWrite = pasteboard.changeCount
+
+        provider.arm()
+        Self.postCommandV()
+        let confirmed = await provider.waitUntilRead(timeout: readTimeout)
+        if confirmed { try? await Task.sleep(for: restoreDelay) }
+
+        // Put the old clipboard back whether or not the paste happened, unless something else was copied meanwhile.
+        if pasteboard.changeCount == changeCountAfterWrite { Self.restore(saved, to: pasteboard) }
+        return confirmed ? .pasted : .notPasted(.pasteNotConfirmed)
+    }
+
+    // MARK: - Clipboard
+
+    private func write(provider: TextProvider) {
+        let item = NSPasteboardItem()
+        item.setDataProvider(provider, forTypes: [.string])
+        // Conventions clipboard managers honour to skip an item.
+        for marker in ["org.nspasteboard.TransientType", "org.nspasteboard.ConcealedType", "org.nspasteboard.AutoGeneratedType"] {
+            item.setData(Data(), forType: NSPasteboard.PasteboardType(marker))
+        }
+        pasteboard.clearContents()
+        pasteboard.writeObjects([item])
+    }
+
+    /// Every item with its types in their original order, since receivers may take the first type they understand.
+    typealias Snapshot = [[(type: NSPasteboard.PasteboardType, data: Data)]]
+
+    static func snapshot(of pasteboard: NSPasteboard) -> Snapshot {
+        (pasteboard.pasteboardItems ?? []).map { item in
+            item.types.compactMap { type in item.data(forType: type).map { (type: type, data: $0) } }
+        }
+    }
+
+    static func restore(_ snapshot: Snapshot, to pasteboard: NSPasteboard) {
+        pasteboard.clearContents()
+        let items = snapshot.map { contents -> NSPasteboardItem in
+            let item = NSPasteboardItem()
+            for entry in contents { item.setData(entry.data, forType: entry.type) }
+            return item
+        }
+        if !items.isEmpty { pasteboard.writeObjects(items) }
+    }
+
+    // MARK: - Keystroke
+
+    /// Presses ⌘V with only the Command flag set, even if Fn or another modifier is still physically down.
+    private static func postCommandV() {
+        let source = CGEventSource(stateID: .combinedSessionState)
+        let key = CGKeyCode(kVK_ANSI_V)
+        for keyDown in [true, false] {
+            let event = CGEvent(keyboardEventSource: source, virtualKey: key, keyDown: keyDown)
+            event?.flags = .maskCommand
+            event?.post(tap: .cghidEventTap)
+        }
+    }
+}
+
+/// Supplies the text only when an app asks for it, and remembers that it was asked.
+private final class TextProvider: NSObject, NSPasteboardItemDataProvider, @unchecked Sendable {
+    private let text: String
+    private let lock = NSLock()
+    private var armed = false
+    private var readAfterArming = false
+    private var readBeforeArming = false
+
+    init(text: String) {
+        self.text = text
+    }
+
+    /// Reads before this point (a clipboard manager peeking) don't count as the paste.
+    func arm() { lock.withLock { armed = true } }
+
+    func pasteboard(_ pasteboard: NSPasteboard?, item: NSPasteboardItem, provideDataForType type: NSPasteboard.PasteboardType) {
+        if type == .string { item.setString(text, forType: .string) }
+        lock.withLock {
+            if armed { readAfterArming = true } else { readBeforeArming = true }
+        }
+    }
+
+    private var state: (after: Bool, before: Bool) { lock.withLock { (readAfterArming, readBeforeArming) } }
+
+    func waitUntilRead(timeout: Duration) async -> Bool {
+        let start = ContinuousClock.now
+        let deadline = start + timeout
+        while ContinuousClock.now < deadline {
+            let current = state
+            if current.after { return true }
+            // Something fetched the text before ⌘V, so the target's own read can no longer be seen.
+            // Give it a short grace period and assume the paste happened.
+            if current.before, ContinuousClock.now - start > .milliseconds(300) { return true }
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        return state.after
+    }
+}
