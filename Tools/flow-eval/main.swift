@@ -4,6 +4,7 @@ import FluidAudio
 import Foundation
 
 // Usage: flow-eval [--clips DIR] [--refs DIR] [--engines parakeet-v2,parakeet-v3]
+//        flow-eval cleanup [--cases FILE] [--cleaners rules,apple,ollama:MODEL] [--verbose]   (see Cleanup.swift)
 // Clips are evals/clips/NAME.wav (or .m4a/.caf) with matching reference text evals/refs/NAME.txt.
 
 struct Options {
@@ -125,4 +126,8 @@ func run() async {
     }
 }
 
-await run()
+if CommandLine.arguments.dropFirst().first == "cleanup" {
+    await runCleanup(Array(CommandLine.arguments.dropFirst(2)))
+} else {
+    await run()
+}
