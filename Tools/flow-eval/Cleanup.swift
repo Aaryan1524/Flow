@@ -230,7 +230,8 @@ func runCleanup(_ arguments: [String]) async {
         if options.verbose {
             for outcome in outcomes {
                 let mark = outcome.output == nil ? "ERR" : isExact(outcome.output ?? "", outcome.testCase.expected) ? "ok " : "-- "
-                details.append("  \(mark) \(outcome.testCase.id): \((outcome.output ?? outcome.error ?? "").debugDescription)")
+                let tripped = outcome.verdict?.failure.map { "  [guard: \($0)]" } ?? ""
+                details.append("  \(mark) \(outcome.testCase.id): \((outcome.output ?? outcome.error ?? "").debugDescription)\(tripped)")
             }
         }
         details.append("")
