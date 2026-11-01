@@ -64,6 +64,7 @@ let package = Package(
         .testTarget(name: "FlowKitTests", dependencies: ["FlowKit"], path: "Tests/FlowKitTests"),
         .testTarget(name: "HotkeyTests", dependencies: ["Hotkey"], path: "Tests/HotkeyTests"),
         .testTarget(name: "AudioTests", dependencies: ["Audio"], path: "Tests/AudioTests"),
+        .testTarget(name: "InsertionTests", dependencies: ["Insertion"], path: "Tests/InsertionTests"),
         .testTarget(name: "HistoryTests", dependencies: ["History"], path: "Tests/HistoryTests"),
         .testTarget(name: "CleanupTests", dependencies: ["FlowKit", "Cleanup"], path: "Tests/CleanupTests"),
     ]
