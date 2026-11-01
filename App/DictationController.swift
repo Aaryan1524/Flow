@@ -98,7 +98,8 @@ final class DictationController {
         pollTask = Task {
             while !Task.isCancelled {
                 refreshPermissions()
-                if !monitor.isRunning, FnKeyMonitor.hasPermission { monitor.start() }
+                // Trying to create the listener is what makes macOS list Flow under Input Monitoring.
+                if !monitor.isRunning { monitor.start() }
                 try? await Task.sleep(for: .seconds(2))
             }
         }
