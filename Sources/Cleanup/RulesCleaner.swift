@@ -203,9 +203,19 @@ public struct RulesCleaner: TextCleaner {
         "long", "short", "next", "previous", "same", "whole", "entire", "final", "oxford", "serial", "trailing",
         "leading", "missing", "extra", "stray", "decimal", "single", "double", "inverted", "forgotten", "wrong",
         "second", "third", "fourth", "fifth",
-        // To be reconsidered per word.
-        "use", "using", "start", "begin", "create", "make", "need", "want", "one", "last", "first", "big", "red",
     ]
+    /// Verbs that take "period" or "new line" as an object only sometimes: "use period as the delimiter" mentions it,
+    /// "that is what we use period" does not. They block a command only while the sentence carries on lowercase.
+    private static let softPrefixes: Set<String> = [
+        "use", "uses", "using", "make", "makes", "making", "need", "needs", "needed", "want", "wants", "wanted",
+        "start", "starts", "starting", "begin", "begins", "beginning", "create", "creates", "creating",
+    ]
+    /// Numbers are items in a list ("item one comma item two") unless a determiner or verb in front makes them a
+    /// count of the thing ("put one comma", "the first comma").
+    private static let numberWords: Set<String> = [
+        "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "first", "last",
+    ]
+    private static let quantifiers: Set<String> = ["only", "just", "exactly", "least", "most", "than"]
     /// "period" is a noun after these: "the waiting period", "the holiday period".
     private static let periodCompounds: Set<String> = [
         "time", "grace", "trial", "billing", "waiting", "cooling", "probation", "holding", "holiday", "holidays",
@@ -244,6 +254,16 @@ public struct RulesCleaner: TextCleaner {
                 tokens.replaceSubrange(i..<(i + words), with: [Token(breaks: count)])
             }
         }
+        // Two breaks in a row make one blank-line break ("new line new line"), never more than a spoken paragraph.
+        var merged: [Token] = []
+        for token in tokens {
+            if token.isBreak, let last = merged.last, last.isBreak {
+                merged[merged.count - 1].breaks = max(last.breaks, token.breaks, min(2, last.breaks + token.breaks))
+            } else {
+                merged.append(token)
+            }
+        }
+        tokens = merged
         // A command at the very end leaves a trailing break; drop it.
         while tokens.last?.isBreak == true { tokens.removeLast() }
     }
@@ -252,7 +272,7 @@ public struct RulesCleaner: TextCleaner {
     /// the thing ("a long period", "split on comma", "the new line character").
     private static func command(at index: Int, in tokens: [Token], punctuated: Bool) -> Command? {
         let previous = tokens[index - 1]
-        guard previous.isWord else { return nil }
+        guard previous.isWord || previous.isBreak else { return nil }
         let key = tokens[index].key
         let nextKey = index + 1 < tokens.count && tokens[index + 1].isWord ? tokens[index + 1].key : nil
 
@@ -285,6 +305,10 @@ public struct RulesCleaner: TextCleaner {
             return nil
         }
 
+        // Punctuation goes on a word; only a line break can follow another break.
+        if mark != nil, !(previous.isWord && previous.trail.isEmpty) { return nil }
+        guard previous.isWord || breaks > 0 else { return nil }
+
         // The command's own words carry no punctuation: "period." is the word followed by a full stop, which is how
         // a sentence ending in the noun looks. The one exception is a line command the speech model punctuated as
         // its own sentence ("Thanks. New line. Best regards.").
@@ -297,8 +321,9 @@ public struct RulesCleaner: TextCleaner {
         let after = index + words < tokens.count ? tokens[index + words] : nil
         if let after, after.isWord, followers.contains(after.key) { return nil }
 
-        if previous.trail.isEmpty, isMention(tokens, at: index, punctuated: punctuated) { return nil }
-        if mark != nil, !previous.trail.isEmpty { return nil }
+        if previous.isWord, previous.trail.isEmpty, isMention(tokens, at: index, after: after, punctuated: punctuated) {
+            return nil
+        }
 
         if key == "period" {
             // "period" only ends a sentence when something plainly follows it.
@@ -315,8 +340,19 @@ public struct RulesCleaner: TextCleaner {
     }
 
     /// Whether the word before the command makes it the name of a thing rather than an instruction.
-    private static func isMention(_ tokens: [Token], at index: Int, punctuated: Bool) -> Bool {
-        if mentionPrefixes.contains(tokens[index - 1].key) { return true }
+    private static func isMention(_ tokens: [Token], at index: Int, after: Token?, punctuated: Bool) -> Bool {
+        let previous = tokens[index - 1].key
+        if mentionPrefixes.contains(previous) { return true }
+        if softPrefixes.contains(previous) {
+            // Still a mention only while the sentence carries on in lowercase.
+            return after?.isWord == true && after?.lead.isEmpty == true && after?.core.first?.isLowercase == true
+        }
+        if numberWords.contains(previous) {
+            if punctuated { return true }
+            guard index >= 2, tokens[index - 2].isWord, tokens[index - 2].trail.isEmpty else { return false }
+            let earlier = tokens[index - 2].key
+            return mentionPrefixes.contains(earlier) || softPrefixes.contains(earlier) || quantifiers.contains(earlier)
+        }
         guard punctuated else { return false }
         // Text the speech model already punctuated: a determiner or preposition anywhere earlier in the clause
         // ("during the Victorian period") suggests a noun phrase, so leave the word alone.

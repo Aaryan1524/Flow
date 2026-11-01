@@ -299,3 +299,32 @@ extension RulesCleanerTests {
         #expect(clean("We shipped it period Then we left.") == "We shipped it. Then we left.")
     }
 }
+
+// MARK: - Commands next to words that only sometimes take a noun
+
+extension RulesCleanerTests {
+    @Test func convertsACommandAfterVerbsAndNumbersThatDoNotTakeIt() {
+        #expect(clean("that is exactly what I need period") == "That is exactly what I need.")
+        #expect(clean("we want period Talk soon") == "We want. Talk soon.")
+        #expect(clean("that is the tool we use period") == "That is the tool we use.")
+        #expect(clean("add item one comma item two") == "Add item one, item two.")
+        #expect(clean("step one comma open the file") == "Step one, open the file.")
+        #expect(clean("my favorite color is red comma blue or green") == "My favorite color is red, blue or green.")
+        #expect(clean("take the last one period Thanks") == "Take the last one. Thanks.")
+    }
+
+    @Test func stillLeavesThemAloneWhenTheNounPhraseContinues() {
+        #expect(clean("use period as the delimiter") == "Use period as the delimiter.")
+        #expect(clean("use one comma here") == "Use one comma here.")
+        #expect(clean("put one comma after the name") == "Put one comma after the name.")
+        #expect(clean("start new line when you reach the margin") == "Start new line when you reach the margin.")
+        #expect(clean("we need new line items for the invoice") == "We need new line items for the invoice.")
+        #expect(clean("Put it after the first comma and before the last one.") == "Put it after the first comma and before the last one.")
+    }
+
+    @Test func convertsASecondNewLineRightAfterTheFirst() {
+        #expect(clean("first line new line new line second line") == "First line\n\nSecond line.")
+        #expect(clean("hello there new paragraph new paragraph bye") == "Hello there\n\nBye.")
+        #expect(clean("hello there\nnew line world") == "Hello there\n\nWorld.")
+    }
+}
