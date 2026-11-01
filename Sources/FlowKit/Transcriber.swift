@@ -6,10 +6,13 @@ public struct VocabularyReplacement: Sendable, Equatable {
     public let original: String
     /// The vocabulary term that replaced it.
     public let term: String
+    /// Why the engine made the swap, in its own words. For diagnostics only.
+    public let detail: String
 
-    public init(original: String, term: String) {
+    public init(original: String, term: String, detail: String = "") {
         self.original = original
         self.term = term
+        self.detail = detail
     }
 }
 

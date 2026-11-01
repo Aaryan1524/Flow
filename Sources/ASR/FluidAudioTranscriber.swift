@@ -31,14 +31,19 @@ public final class FluidAudioTranscriber: Transcriber {
     public let name: String
     private let model: Model
     private let vocabulary: [String]
+    private let minSimilarity: Float?
     private let manager = AsrManager(config: .default)
     private let boosting = Mutex<VocabularyBoostingSession?>(nil)
 
-    /// - Parameter vocabulary: Names, products and identifiers to listen for. Empty means no boosting.
-    public init(model: Model, vocabulary: [String] = []) {
+    /// - Parameters:
+    ///   - vocabulary: Names, products and identifiers to listen for. Empty means no boosting.
+    ///   - minSimilarity: How close in spelling a term must be to the word it replaces, from 0 to 1.
+    ///     Higher means fewer wrong swaps and fewer fixes. FluidAudio's default is 0.55 for a vocabulary this size.
+    public init(model: Model, vocabulary: [String] = [], minSimilarity: Float? = nil) {
         self.model = model
         self.vocabulary = vocabulary
-        self.name = "parakeet-\(model.rawValue)" + (vocabulary.isEmpty ? "" : "+vocab")
+        self.minSimilarity = minSimilarity
+        self.name = "parakeet-\(model.rawValue)" + (vocabulary.isEmpty ? "" : "+vocab" + (minSimilarity.map { "@\($0)" } ?? ""))
     }
 
     public func prepare() async throws {
@@ -48,7 +53,9 @@ public final class FluidAudioTranscriber: Transcriber {
 
         // The CTC model is a separate download (parakeet-ctc-110m, mel spectrogram plus encoder).
         let ctcModels = try await CtcModels.downloadAndLoad(variant: .ctc110m)
-        let context = CustomVocabularyContext(terms: vocabulary.map { CustomVocabularyTerm(text: $0) })
+        let terms = vocabulary.map { CustomVocabularyTerm(text: $0) }
+        let context =
+            minSimilarity.map { CustomVocabularyContext(terms: terms, minSimilarity: $0) } ?? CustomVocabularyContext(terms: terms)
         let session = try await VocabularyBoostingSession(vocabulary: context, ctcModels: ctcModels)
         boosting.withLock { $0 = session }
     }
@@ -69,7 +76,7 @@ public final class FluidAudioTranscriber: Transcriber {
             detected = rescored.detectedTerms
             replacements = rescored.replacements.compactMap { item in
                 guard item.shouldReplace, let term = item.replacementWord else { return nil }
-                return VocabularyReplacement(original: item.originalWord, term: term)
+                return VocabularyReplacement(original: item.originalWord, term: term, detail: item.reason)
             }
         }
 
