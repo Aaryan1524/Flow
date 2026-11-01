@@ -71,8 +71,9 @@ func printVocabularyReport(runs: [EngineRun], terms: [String], verbose: Bool) {
                 + percent(wordErrorRate(without)))
     }
 
-    for boosted in runs where boosted.name.hasSuffix("+vocab") {
-        let baseName = String(boosted.name.dropLast("+vocab".count))
+    for boosted in runs {
+        guard let range = boosted.name.range(of: "+vocab") else { continue }
+        let baseName = String(boosted.name[..<range.lowerBound])
         guard let base = runs.first(where: { $0.name == baseName }) else { continue }
         printSideEffects(base: base, boosted: boosted, terms: terms, hasTerm: hasTerm, verbose: verbose)
     }
@@ -90,6 +91,9 @@ private func printSideEffects(base: EngineRun, boosted: EngineRun, terms: [Strin
     var replacementsRight = 0
     var wrongReplacements: [String] = []
     var collateral: [String] = []
+    var caseOnly = 0
+    var termInsertionsRight = 0
+    var wrongTermInsertions: [String] = []
     var punctuationBefore = 0
     var punctuationAfter = 0
     var capitalsBefore = 0
@@ -108,7 +112,7 @@ private func printSideEffects(base: EngineRun, boosted: EngineRun, terms: [Strin
             if TermRecall.contains(after.clip.reference, term: replacement.term, caseSensitive: false) {
                 replacementsRight += 1
             } else {
-                wrongReplacements.append("\(after.clip.name): \"\(replacement.original)\" -> \"\(replacement.term)\"")
+                wrongReplacements.append("\(after.clip.name): \"\(replacement.original)\" -> \"\(replacement.term)\"  [\(replacement.detail)]")
             }
         }
 
@@ -121,14 +125,27 @@ private func printSideEffects(base: EngineRun, boosted: EngineRun, terms: [Strin
         capitalsBefore += capitalCount(before.raw)
         capitalsAfter += capitalCount(after.raw)
 
-        // A difference that does not contain a term the engine reported inserting is collateral damage.
-        let inserted = after.replacements.map { $0.term.lowercased() }
+        // Sort every difference into: a vocabulary term appearing where there was something else,
+        // a capitalisation-only change, or anything else (collateral damage).
         let beforeWords = before.raw.split(whereSeparator: \.isWhitespace).map(String.init)
         let afterWords = after.raw.split(whereSeparator: \.isWhitespace).map(String.init)
         for hunk in WordDiff.hunks(beforeWords, afterWords) {
-            let afterText = hunk.after.joined(separator: " ").lowercased()
-            if !inserted.contains(where: { afterText.contains($0) }) {
-                collateral.append("\(after.clip.name): \"\(hunk.before.joined(separator: " "))\" -> \"\(hunk.after.joined(separator: " "))\"")
+            let from = hunk.before.joined(separator: " ")
+            let to = hunk.after.joined(separator: " ")
+            let label = "\(after.clip.name): \"\(from)\" -> \"\(to)\""
+            let newTerms = TermRecall.termsPresent(in: to, terms: terms).filter { !TermRecall.contains(from, term: $0, caseSensitive: false) }
+            if from.lowercased() == to.lowercased() {
+                caseOnly += 1
+            } else if !newTerms.isEmpty {
+                for term in newTerms {
+                    if TermRecall.contains(after.clip.reference, term: term, caseSensitive: false) {
+                        termInsertionsRight += 1
+                    } else {
+                        wrongTermInsertions.append("\(label)  (\(term) is not in the reference)")
+                    }
+                }
+            } else {
+                collateral.append(label)
             }
         }
 
@@ -150,10 +167,14 @@ private func printSideEffects(base: EngineRun, boosted: EngineRun, terms: [Strin
     print("term recall on text before number conversion: \(rawBase.found) -> \(rawBoosted.found) of \(rawBoosted.expected)")
     print("transcripts changed: \(changed) of \(sameClips.count)  (fewer word errors: \(better), more: \(worse), same: \(changed - better - worse))")
     print("changed clips with no vocabulary term in the reference: \(changedWithoutTerms)")
-    print("replacements applied: \(replacementsTotal), reference has that term: \(replacementsRight), not: \(replacementsTotal - replacementsRight)")
+    print("replacements the engine reports: \(replacementsTotal), reference has that term: \(replacementsRight), not: \(replacementsTotal - replacementsRight)")
     for line in wrongReplacements { print("  wrong replacement  \(line)") }
-    print("differences not explained by a replacement: \(collateral.count)")
-    for line in collateral { print("  collateral  \(line)") }
+    // Counted from the text itself, so it works for engines that do not report replacements.
+    print("a vocabulary term appears in the boosted text where the baseline had other words: \(termInsertionsRight + wrongTermInsertions.count), reference has that term: \(termInsertionsRight), not: \(wrongTermInsertions.count)")
+    for line in wrongTermInsertions { print("  wrong term  \(line)") }
+    print("capitalisation-only differences: \(caseOnly)")
+    print("other differences (neither a term nor capitalisation): \(collateral.count)")
+    for line in collateral { print("  other  \(line)") }
     print("on changed clips, punctuation marks \(punctuationBefore) -> \(punctuationAfter), capital letters \(capitalsBefore) -> \(capitalsAfter)")
-    print("spotter heard a vocabulary term in \(detectedClips) clips (\(detectedTotal) detections)")
+    print("spotter candidates (loose threshold, not confirmed hits): in \(detectedClips) clips, \(detectedTotal) in all")
 }

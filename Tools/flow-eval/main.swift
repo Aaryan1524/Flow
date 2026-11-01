@@ -6,6 +6,7 @@ import Foundation
 // Usage: flow-eval [--clips DIR] [--refs DIR] [--engines parakeet-v2,parakeet-v3] [--vocab FILE] [--verbose]
 //        Engines: parakeet-{v2,v3,ultra,bark3,bark3-clean}, dictation, speech-transcriber (Apple Speech framework).
 //        A "+vocab" suffix (parakeet-v2+vocab, dictation+vocab) gives that engine the terms in FILE.
+//        For parakeet engines, "+vocab@0.7" also sets how close in spelling a term must be to replace a word.
 //        With --vocab the table gains a term-recall column and a report on what boosting changed.
 //        flow-eval cleanup [--cases FILE] [--cleaners rules,apple,ollama:MODEL] [--verbose]   (see Cleanup.swift)
 //        flow-eval pipeline [--clips DIR] [--refs DIR] [--engine NAME] [--cleaners ...]       (see Pipeline.swift)
@@ -44,15 +45,29 @@ func fail(_ message: String) -> Never {
     exit(1)
 }
 
-/// `NAME` runs an engine as is; `NAME+vocab` also gives it `vocabulary`.
+/// `NAME` runs an engine as is; `NAME+vocab` also gives it `vocabulary`; `NAME+vocab@0.7` sets FluidAudio's
+/// minimum spelling similarity for a replacement.
 func makeEngine(_ name: String, vocabulary: [String] = []) -> Transcriber {
-    let boosted = name.hasSuffix("+vocab")
-    let base = boosted ? String(name.dropLast("+vocab".count)) : name
+    var base = name
+    var boosted = false
+    var minSimilarity: Float?
+    if let range = name.range(of: "+vocab") {
+        base = String(name[..<range.lowerBound])
+        boosted = true
+        let rest = name[range.upperBound...]
+        if rest.hasPrefix("@") {
+            guard let value = Float(rest.dropFirst()) else { fail("bad similarity in \(name)") }
+            minSimilarity = value
+        } else if !rest.isEmpty {
+            fail("unknown engine \(name)")
+        }
+    }
     if boosted && vocabulary.isEmpty { fail("\(name) needs --vocab FILE") }
     let terms = boosted ? vocabulary : []
     for model in FluidAudioTranscriber.Model.allCases where base == "parakeet-\(model.rawValue)" {
-        return FluidAudioTranscriber(model: model, vocabulary: terms)
+        return FluidAudioTranscriber(model: model, vocabulary: terms, minSimilarity: minSimilarity)
     }
+    if minSimilarity != nil { fail("@similarity only applies to parakeet engines: \(name)") }
     for kind in AppleSpeechTranscriber.Kind.allCases where base == kind.rawValue {
         return AppleSpeechTranscriber(kind: kind, vocabulary: terms)
     }
