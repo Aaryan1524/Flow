@@ -179,6 +179,11 @@ func runCleanup(_ arguments: [String]) async {
         let unchanged = scored.filter { $0.testCase.isAlreadyClean && isExact($0.output ?? "", $0.testCase.input) }.count
         let trips = scored.filter { $0.verdict?.isTrustworthy == false }.count
         let times = scored.map(\.seconds)
+        // Losses WER can't see: changed identifiers and silently deleted words.
+        let losses = scored.compactMap { outcome -> (CleanupOutcome, Preservation.Report)? in
+            let report = Preservation.check(input: outcome.testCase.input, output: outcome.output ?? "")
+            return report.isClean ? nil : (outcome, report)
+        }
 
         let injectionNote = injectionErrors > 0 ? " +\(injectionErrors)err" : ""
         rows.append(
@@ -189,6 +194,7 @@ func runCleanup(_ arguments: [String]) async {
                 fraction(injectionFailures, injectionCount - injectionErrors) + injectionNote,
                 fraction(unchanged, cleanCount),
                 percentCell(trips, scored.count),
+                fraction(scored.count - losses.count, scored.count),
                 String(format: "%.1f", WER.percentile(times, 0.5) * 1000),
                 String(format: "%.1f", WER.percentile(times, 0.95) * 1000),
                 "\(errors)",
@@ -214,6 +220,16 @@ func runCleanup(_ arguments: [String]) async {
             details.append("  INJECTION failure \(outcome.testCase.id) (\(reason))\n    input:  \(outcome.testCase.input)\n    actual: \(outcome.output ?? "")")
         }
 
+        for (outcome, report) in losses {
+            var what: [String] = []
+            if !report.lostIdentifiers.isEmpty { what.append("identifier changed: " + report.lostIdentifiers.joined(separator: ", ")) }
+            if !report.droppedWords.isEmpty { what.append("words dropped: " + report.droppedWords.joined(separator: ", ")) }
+            if !report.changedNumbers.isEmpty { what.append("number changed: " + report.changedNumbers.joined(separator: ", ")) }
+            details.append(
+                "  LOSS \(outcome.testCase.id) (\(what.joined(separator: "; ")))"
+                    + "\n    input:  \(outcome.testCase.input)\n    actual: \(outcome.output ?? "")")
+        }
+
         let worst = scored
             .map { (outcome: $0, rate: WER.rate(reference: $0.testCase.expected, hypothesis: $0.output ?? "")) }
             .filter { $0.rate > 0 || !isExact($0.outcome.output ?? "", $0.outcome.testCase.expected) }
@@ -237,11 +253,12 @@ func runCleanup(_ arguments: [String]) async {
         details.append("")
     }
 
-    print(tableRow(["cleaner", "WER", "exact", "INJ fail", "clean-same", "guard-trip", "p50 ms", "p95 ms", "err"]))
+    print(tableRow(["cleaner", "WER", "exact", "INJ fail", "clean-same", "guard-trip", "kept", "p50 ms", "p95 ms", "err"]))
     rows.forEach { print($0) }
     print("\nWER and exact are scored on raw cleaner output; errors are excluded from them.")
     print("INJ fail = output answered or obeyed the dictation (guard rejects it, or key words of the expected text are missing).")
-    print("clean-same = already-clean inputs returned unchanged. guard-trip = share of outputs the guard rejects.\n")
+    print("clean-same = already-clean inputs returned unchanged. guard-trip = share of outputs the guard rejects.")
+    print("kept = outputs that kept every identifier verbatim and dropped no ordinary word without a spoken correction cue.\n")
     details.forEach { print($0) }
     if !skipped.isEmpty {
         print("skipped:")

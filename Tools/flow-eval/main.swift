@@ -5,6 +5,7 @@ import Foundation
 
 // Usage: flow-eval [--clips DIR] [--refs DIR] [--engines parakeet-v2,parakeet-v3]
 //        flow-eval cleanup [--cases FILE] [--cleaners rules,apple,ollama:MODEL] [--verbose]   (see Cleanup.swift)
+//        flow-eval pipeline [--clips DIR] [--refs DIR] [--engine NAME] [--cleaners ...]       (see Pipeline.swift)
 // Clips are evals/clips/NAME.wav (or .m4a/.caf) with matching reference text evals/refs/NAME.txt.
 
 struct Options {
@@ -135,8 +136,8 @@ func run() async {
     }
 }
 
-if CommandLine.arguments.dropFirst().first == "cleanup" {
-    await runCleanup(Array(CommandLine.arguments.dropFirst(2)))
-} else {
-    await run()
+switch CommandLine.arguments.dropFirst().first {
+case "cleanup": await runCleanup(Array(CommandLine.arguments.dropFirst(2)))
+case "pipeline": await runPipeline(Array(CommandLine.arguments.dropFirst(2)))
+default: await run()
 }
