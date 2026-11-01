@@ -37,6 +37,9 @@ final class DictationController {
     private(set) var notice: String?
     /// The Globe key opens the emoji picker unless it is set to Do Nothing.
     private(set) var globeKeyIsDisabled = true
+    /// Microphones to choose from, and the one that will actually be used.
+    private(set) var microphones: [AudioInputDevice] = []
+    private(set) var activeMicrophoneName = "system default"
 
     @ObservationIgnored private let monitor = FnKeyMonitor()
     @ObservationIgnored private let recorder = MicrophoneRecorder()
@@ -90,6 +93,7 @@ final class DictationController {
         activity = ProcessInfo.processInfo.beginActivity(options: .userInitiated, reason: "Listening for the dictation key")
         monitor.onEvent = { [weak self] event in self?.handle(event) }
         refreshPermissions()
+        refreshMicrophones()
         observeSystemEvents()
 
         Task {
@@ -97,6 +101,7 @@ final class DictationController {
             if !FnKeyMonitor.hasPermission { FnKeyMonitor.requestPermission() }
             if !ClipboardPaster.hasAccessibilityPermission { ClipboardPaster.requestAccessibilityPermission() }
             refreshPermissions()
+            prewarmRecorder()
             await loadModel()
         }
 
@@ -109,6 +114,8 @@ final class DictationController {
                 if !monitor.isRunning { monitor.start() }
                 if listening != monitor.isRunning { listening = monitor.isRunning }
                 refreshGlobeKeySetting()
+                refreshMicrophones()
+                prewarmRecorder()
                 await pruneHistoryIfDue()
                 try? await Task.sleep(for: .seconds(2))
             }
@@ -174,6 +181,28 @@ final class DictationController {
         if disabled != globeKeyIsDisabled { globeKeyIsDisabled = disabled }
     }
 
+    // MARK: - Microphone
+
+    private func resolveDevice() -> AudioInputDevice? {
+        AudioInputDevices.resolve(preferredUID: UserDefaults.standard.string(forKey: "inputDeviceUID"))
+    }
+
+    private func refreshMicrophones() {
+        let devices = AudioInputDevices.all()
+        if devices != microphones { microphones = devices }
+        let name = resolveDevice()?.name ?? "system default"
+        if name != activeMicrophoneName { activeMicrophoneName = name }
+    }
+
+    /// Builds the audio engine ahead of time, away from the main thread, so pressing Fn only has to start it.
+    private func prewarmRecorder() {
+        guard permissions.microphone, !recorder.isRecording else { return }
+        let device = resolveDevice()
+        guard !recorder.isPrepared || recorder.preparedDeviceID != device?.id else { return }
+        let recorder = self.recorder
+        Task.detached { try? recorder.prepare(device: device) }
+    }
+
     // MARK: - Dictation
 
     private func handle(_ event: HotkeyEvent) {
@@ -190,7 +219,7 @@ final class DictationController {
             guard status == .ready else { return }
             notice = nil
             targetApp = ClipboardPaster.frontmostBundleID()
-            do { try recorder.start() } catch {
+            do { try recorder.start(device: resolveDevice()) } catch {
                 log.error("could not start recording: \(error.localizedDescription, privacy: .public)")
                 status = .failed("could not use the microphone")
                 return

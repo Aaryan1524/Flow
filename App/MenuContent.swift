@@ -4,6 +4,7 @@ import SwiftUI
 struct MenuContent: View {
     let controller: DictationController
     @AppStorage("saveHistory") private var saveHistory = true
+    @AppStorage("inputDeviceUID") private var inputDeviceUID = ""
 
     var body: some View {
         Text(controller.statusText)
@@ -23,6 +24,16 @@ struct MenuContent: View {
         permissionRow("Accessibility (paste)", granted: controller.permissions.accessibility, pane: "Privacy_Accessibility") {
             controller.requestAccessibility()
         }
+
+        Divider()
+
+        Picker("Microphone", selection: $inputDeviceUID) {
+            Text("Automatic (avoids Bluetooth)").tag("")
+            ForEach(controller.microphones) { device in
+                Text(device.isBluetooth ? "\(device.name) (Bluetooth)" : device.name).tag(device.uid)
+            }
+        }
+        Text("Using: \(controller.activeMicrophoneName)")
 
         Divider()
 
