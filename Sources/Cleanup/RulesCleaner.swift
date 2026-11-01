@@ -197,12 +197,16 @@ public struct RulesCleaner: TextCleaner {
         "escape", "escapes", "escaped", "escaping", "enter", "change", "changes", "changed", "changing",
         "swap", "swaps", "swapped", "swapping", "convert", "converts", "converted", "converting",
         "say", "says", "said", "saying", "key", "character", "symbol", "sign", "word", "words",
+        "print", "prints", "printed", "printing", "write", "writes", "wrote", "writing", "output", "outputs", "echo",
+        "emit", "emits", "prepend", "expect", "expects", "ignore", "ignores", "skip", "skips", "keep", "keeps",
+        "preserve", "preserves", "count", "counts", "handle", "handles", "contain", "contains", "include", "includes",
+        "allow", "allows", "parse", "parses", "treat", "treats", "treated", "read", "reads",
     ]
     /// Words that describe the thing: "long period", "trailing newline", "Oxford comma".
     private static let modifiers: Set<String> = [
         "long", "short", "next", "previous", "same", "whole", "entire", "final", "oxford", "serial", "trailing",
         "leading", "missing", "extra", "stray", "decimal", "single", "double", "inverted", "forgotten", "wrong",
-        "second", "third", "fourth", "fifth",
+        "second", "third", "fourth", "fifth", "more", "additional", "other", "proper", "correct",
     ]
     /// Verbs that take "period" or "new line" as an object only sometimes: "use period as the delimiter" mentions it,
     /// "that is what we use period" does not. They block a command only while the sentence carries on lowercase.
@@ -223,7 +227,6 @@ public struct RulesCleaner: TextCleaner {
         "testing", "sampling", "fiscal", "financial", "historical", "recovery", "development", "vacation",
     ]
     private static let mentionPrefixes = determiners.union(connectives).union(editVerbs).union(modifiers)
-    private static let phraseOpeners = determiners.union(connectives)
 
     private static let nameFollowers: Set<String> = ["key", "keys", "button", "symbol", "symbols", "sign", "icon", "character", "characters"]
     private static let commaFollowers = nameFollowers.union(["separated", "delimited", "splice", "splices", "placement", "usage"])
@@ -298,7 +301,8 @@ public struct RulesCleaner: TextCleaner {
         case "new" where nextKey == "paragraph":
             (breaks, words) = (2, 2)
             followers = lineFollowers
-        case "newline":
+        case "newline" where !punctuated:
+            // The one-word form is mostly the name of the character, so text that is already punctuated keeps it.
             breaks = 1
             followers = lineFollowers
         default:
@@ -354,12 +358,12 @@ public struct RulesCleaner: TextCleaner {
             return mentionPrefixes.contains(earlier) || softPrefixes.contains(earlier) || quantifiers.contains(earlier)
         }
         guard punctuated else { return false }
-        // Text the speech model already punctuated: a determiner or preposition anywhere earlier in the clause
-        // ("during the Victorian period") suggests a noun phrase, so leave the word alone.
+        // Text the speech model already punctuated: a determiner, preposition or editing verb anywhere earlier in
+        // the clause ("during the Victorian period", "add one more comma") suggests a noun phrase, so leave it.
         for position in stride(from: index - 1, through: max(0, index - 3), by: -1) {
             let token = tokens[position]
             guard token.isWord, position == index - 1 || token.trail.isEmpty else { break }
-            if phraseOpeners.contains(token.key) { return true }
+            if mentionPrefixes.contains(token.key) { return true }
         }
         return false
     }

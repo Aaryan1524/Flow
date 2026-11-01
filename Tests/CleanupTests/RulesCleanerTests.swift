@@ -293,6 +293,22 @@ extension RulesCleanerTests {
         #expect(clean("The car came to a full stop.") == "The car came to a full stop.")
     }
 
+    @Test func keepsPunctuationWordsThatAreTheObjectOfAnEarlierVerb() {
+        let samples = [
+            "Add one more comma before the quote.",
+            "Please remove the extra comma and the stray period.",
+            "Print newline after each item.",
+            "We expect newline at the end of the file.",
+            "The parser treats newline as whitespace.",
+            "Collapse every newline into a single space.",
+            "Write period at the end of each sentence.",
+        ]
+        for sample in samples {
+            #expect(clean(sample) == sample, "changed: \(sample)")
+        }
+        #expect(clean("add one more comma before the quote") == "Add one more comma before the quote.")
+    }
+
     @Test func inPunctuatedTextPeriodNeedsACapitalizedWordAfterIt() {
         #expect(clean("During the Victorian period Queen Victoria reigned.") == "During the Victorian period Queen Victoria reigned.")
         #expect(clean("Remember the holiday period") == "Remember the holiday period")
