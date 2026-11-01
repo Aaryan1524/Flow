@@ -1,0 +1,51 @@
+name: Flow
+options:
+  deploymentTarget:
+    macOS: "26.0"
+  createIntermediateGroups: true
+  generateEmptyDirectories: false
+
+packages:
+  Flow:
+    path: .
+
+targets:
+  Flow:
+    type: application
+    platform: macOS
+    sources:
+      - App
+    dependencies:
+      - package: Flow
+        product: FlowKit
+      - package: Flow
+        product: ASR
+      - package: Flow
+        product: Audio
+      - package: Flow
+        product: Hotkey
+      - package: Flow
+        product: Insertion
+      - package: Flow
+        product: History
+    info:
+      path: App/Info.plist
+      properties:
+        CFBundleName: Flow
+        CFBundleDisplayName: Flow
+        LSUIElement: true
+        NSMicrophoneUsageDescription: Flow records your voice while you hold the talk key, then turns it into text on this Mac.
+    entitlements:
+      path: App/Flow.entitlements
+      properties:
+        com.apple.security.device.audio-input: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.aaryan.flow
+        SWIFT_VERSION: "6.0"
+        # Not sandboxed: the sandbox blocks pressing keys in other apps.
+        ENABLE_APP_SANDBOX: NO
+        ENABLE_HARDENED_RUNTIME: NO
+        CODE_SIGN_STYLE: Automatic
+        # Set your team once Xcode is signed in: DEVELOPMENT_TEAM=XXXXXXXXXX
+        # A stable signature keeps the Accessibility and Input Monitoring permissions across rebuilds.
