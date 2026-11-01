@@ -359,3 +359,56 @@ extension RulesCleanerTests {
         #expect(clean("it is it is ready") == "It is ready.")
     }
 }
+
+// MARK: - Closing punctuation and the word I
+
+extension RulesCleanerTests {
+    @Test func doesNotTurnUncasedStatementsIntoQuestions() {
+        #expect(clean("when you get a chance send me the file") == "When you get a chance send me the file.")
+        #expect(clean("would love to help with that") == "Would love to help with that.")
+        #expect(clean("which is why we left early") == "Which is why we left early.")
+        #expect(clean("should be done by friday") == "Should be done by friday.")
+        #expect(clean("how I fixed it was simple") == "How I fixed it was simple.")
+        #expect(clean("who I hire is my business") == "Who I hire is my business.")
+        #expect(clean("do this before lunch") == "Do this before lunch.")
+        #expect(clean("have it done by friday") == "Have it done by friday.")
+    }
+
+    @Test func closesPlainUncasedQuestionsWithAQuestionMark() {
+        #expect(clean("would you mind sending it") == "Would you mind sending it?")
+        #expect(clean("is the server down") == "Is the server down?")
+        #expect(clean("where are you") == "Where are you?")
+        #expect(clean("how do I fix this") == "How do I fix this?")
+        #expect(clean("what time is it") == "What time is it?")
+        #expect(clean("how many ounces are in a pound") == "How many ounces are in a pound?")
+        #expect(clean("who's coming to lunch") == "Who's coming to lunch?")
+        #expect(clean("do you know where it is") == "Do you know where it is?")
+        #expect(clean("have you seen the report") == "Have you seen the report?")
+        #expect(clean("it works. can you send me the file") == "It works. Can you send me the file?")
+    }
+
+    @Test func onlyAsksWhenTheWholeTextIsOneClause() {
+        #expect(clean("what is the capital of france and why does it matter now") == "What is the capital of france and why does it matter now?")
+        #expect(clean("is it ready, i need it today") == "Is it ready, I need it today.")
+        #expect(clean("first check the logs, is the server down") == "First check the logs, is the server down.")
+    }
+
+    @Test func doesNotCloseCommandsWithAPeriod() {
+        #expect(!clean("git rebase main branch").hasSuffix("."))
+        #expect(!clean("docker compose up -d").hasSuffix("."))
+        #expect(!clean("run the build with --release flag").hasSuffix("."))
+        #expect(clean("npm install left pad").hasSuffix(".") == false)
+    }
+
+    @Test func onlyCapitalizesIWhenItIsThePronoun() {
+        #expect(clean("use i as the index") == "Use i as the index.")
+        #expect(clean("set i to zero") == "Set i to zero.")
+        #expect(clean("the value of i was three") == "The value of i was three.")
+        #expect(clean("loop while i is less than ten") == "Loop while i is less than ten.")
+        #expect(clean("i think i should go") == "I think I should go.")
+        #expect(clean("so do i") == "So do I.")
+        #expect(clean("can i have a minute") == "Can I have a minute?")
+        #expect(clean("maybe i wanted more time") == "Maybe I wanted more time.")
+        #expect(clean("i'm sure i'll finish and i've checked") == "I'm sure I'll finish and I've checked.")
+    }
+}

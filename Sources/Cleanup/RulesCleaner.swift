@@ -595,14 +595,60 @@ public struct RulesCleaner: TextCleaner {
         return first.uppercased() + text.dropFirst()
     }
 
+    private static func normalizedKey(_ token: Token) -> String {
+        token.key.replacingOccurrences(of: "\u{2019}", with: "'")
+    }
+
+    private static let iContractions: Set<String> = ["i'm", "i'll", "i've", "i'd"]
+    /// What follows the pronoun "i": an auxiliary, a common verb or an adverb. A variable is followed by "as", "in",
+    /// "to", "plus", "equals" and the like, so those are not here.
+    private static let pronounFollowers: Set<String> = [
+        "am", "was", "were", "have", "had", "will", "would", "can", "could", "should", "shall", "may", "might", "must",
+        "do", "did", "think", "thought", "guess", "suppose", "believe", "know", "knew", "see", "saw", "say", "said",
+        "mean", "meant", "feel", "felt", "want", "need", "like", "love", "hate", "hope", "wish", "wonder", "remember",
+        "forget", "forgot", "understand", "realize", "realise", "assume", "agree", "appreciate", "apologize",
+        "apologise", "promise", "get", "got", "go", "went", "give", "gave", "take", "took", "make", "made", "try",
+        "find", "found", "tell", "told", "ask", "hear", "heard", "read", "wrote", "write", "sent", "send", "left",
+        "leave", "came", "come", "look", "miss", "prefer", "expect", "use", "work", "live", "run", "ran", "call",
+        "bought", "buy", "put", "thank", "really", "just", "also", "always", "never", "still", "probably", "actually",
+        "definitely", "usually", "often", "already", "even", "only", "now", "mostly", "totally", "honestly",
+        "basically", "generally", "personally", "currently", "recently", "finally", "simply", "certainly",
+        "obviously", "sometimes", "rarely",
+    ]
+    /// Before a variable: "use i", "of i", "index i". The pronoun never follows a determiner or preposition.
+    private static let beforeVariable: Set<String> = [
+        "use", "using", "let", "var", "int", "set", "increment", "decrement", "loop", "variable", "index", "named",
+        "letter", "counter", "iterator", "the", "a", "an", "of", "for", "to", "in", "on", "at", "by", "with", "from",
+        "into", "over", "per", "between",
+    ]
+    /// Auxiliaries and comparisons that put the pronoun right behind them: "so do i", "can i", "than i".
+    private static let beforePronoun: Set<String> = [
+        "so", "neither", "nor", "than", "as", "am", "do", "does", "did", "can", "could", "will", "would", "should",
+        "shall", "may", "might", "must", "have", "has", "had",
+    ]
+
+    /// Capitalizes the pronoun "i" and its contractions. A lone "i" that is a variable or an index ("use i as the
+    /// index", "set i to zero") is left as written.
     private func fixPronounI(_ tokens: inout [Token]) {
-        let forms: Set<String> = ["i", "i'm", "i'll", "i've", "i'd", "i\u{2019}m", "i\u{2019}ll", "i\u{2019}ve", "i\u{2019}d"]
         for index in tokens.indices where tokens[index].isWord {
             let core = tokens[index].core
-            if forms.contains(core), !protectedSpellings.contains(core) {
+            let key = Self.normalizedKey(tokens[index])
+            guard core == core.lowercased(), !protectedSpellings.contains(core) else { continue }
+            if Self.iContractions.contains(key) {
                 tokens[index].core = Self.capitalizingFirst(core)
+            } else if key == "i", Self.isPronoun(tokens, at: index) {
+                tokens[index].core = "I"
             }
         }
+    }
+
+    private static func isPronoun(_ tokens: [Token], at index: Int) -> Bool {
+        let previous = index > 0 && tokens[index - 1].isWord && tokens[index - 1].trail.isEmpty ? normalizedKey(tokens[index - 1]) : nil
+        if let previous, beforePronoun.contains(previous) { return true }
+        if let previous, beforeVariable.contains(previous) { return false }
+        guard tokens[index].trail.isEmpty, index + 1 < tokens.count, tokens[index + 1].isWord else { return false }
+        let next = normalizedKey(tokens[index + 1])
+        return pronounFollowers.contains(next) || next.hasSuffix("n't") || next.hasSuffix("ed") || next.hasSuffix("ly")
     }
 
     private func capitalizeSentences(_ tokens: inout [Token]) {
@@ -625,14 +671,81 @@ public struct RulesCleaner: TextCleaner {
         }
     }
 
-    /// Words that open a question when the text has no punctuation to say so.
-    private static let questionOpeners: Set<String> = [
-        "what", "who", "whom", "whose", "where", "when", "why", "which", "how",
-        "is", "are", "was", "were", "am", "does", "did", "can", "could", "would", "should",
+    // MARK: - Closing punctuation
+
+    /// Command-line tools that are dictated as the first word of a command: "git rebase main branch".
+    private static let commandNames: Set<String> = [
+        "git", "npm", "npx", "yarn", "pnpm", "kubectl", "docker", "helm", "terraform", "ls", "cd", "pwd", "mkdir",
+        "rmdir", "chmod", "chown", "grep", "curl", "wget", "ssh", "scp", "sudo", "brew", "pip", "pip3", "cargo",
+        "rustc", "swift", "xcodebuild", "tmux", "vim",
+    ]
+    /// What follows a command name when the word is just a word: "swift is fast".
+    private static let afterNameWord: Set<String> = [
+        "is", "are", "was", "were", "has", "have", "had", "does", "did", "will", "would", "can", "could", "should", "may",
+        "might", "must", "means", "isn't", "doesn't", "wasn't", "won't",
     ]
 
+    /// Whether the sentence reads as something typed into a terminal rather than prose.
+    private static func looksLikeCommand(_ sentence: ArraySlice<Token>) -> Bool {
+        guard let first = sentence.first else { return false }
+        if commandNames.contains(first.key) {
+            let second = sentence.dropFirst().first
+            if second?.isWord != true || !afterNameWord.contains(second?.key ?? "") { return true }
+        }
+        return sentence.contains { token in
+            let core = Array(token.core)
+            return core.count > 1 && core[0] == "-" && (core[1].isLetter || core[1] == "-")
+        }
+    }
+
+    private static let invertingAuxiliaries: Set<String> = [
+        "is", "are", "was", "were", "am", "does", "did", "will", "would", "can", "could", "should", "shall", "may",
+        "might", "must", "has",
+    ]
+    /// "do", "have" and "had" also start commands ("do this", "have it done"), so only a person counts as a subject.
+    private static let imperativeAuxiliaries: Set<String> = ["do", "have", "had"]
+    private static let personSubjects: Set<String> = [
+        "i", "you", "we", "they", "anyone", "anybody", "someone", "somebody", "everyone", "everybody",
+    ]
+    private static let otherSubjects: Set<String> = [
+        "he", "she", "it", "there", "this", "that", "these", "those", "nobody", "the", "a", "an", "my", "your", "our",
+        "their", "his", "her", "its", "any", "some", "every", "each",
+    ]
+    private static let whWords: Set<String> = ["what", "who", "whom", "whose", "where", "when", "why", "how"]
+    private static let whContractions: Set<String> = [
+        "what's", "who's", "where's", "when's", "why's", "how's", "what're", "who're", "where're", "how're",
+    ]
+    /// "how many ounces are in a pound", "how about lunch"; "how to fix it" and "how I did it" are statements.
+    private static let howQuestionWords: Set<String> = [
+        "many", "much", "long", "old", "far", "often", "big", "tall", "fast", "soon", "come", "about",
+    ]
+    private static let questionNouns: Set<String> = [
+        "time", "day", "date", "month", "year", "week", "size", "color", "colour", "kind", "type", "sort", "one", "ones",
+        "version", "option", "else",
+    ]
+
+    /// Whether the sentence is plainly a question without punctuation to say so: one clause that opens with an
+    /// inverted auxiliary and its subject ("can you send it") or a wh-word and an auxiliary ("what is the plan").
+    private static func isPlainQuestion(_ sentence: ArraySlice<Token>) -> Bool {
+        guard sentence.dropLast().allSatisfy({ $0.trail.isEmpty }) else { return false }
+        let keys = sentence.map(normalizedKey)
+        guard let first = keys.first else { return false }
+        let second = keys.count > 1 ? keys[1] : ""
+        if invertingAuxiliaries.contains(first) {
+            return personSubjects.contains(second) || otherSubjects.contains(second)
+        }
+        if imperativeAuxiliaries.contains(first) { return personSubjects.contains(second) }
+        if whContractions.contains(first) { return true }
+        if whWords.contains(first) {
+            if invertingAuxiliaries.contains(second) || imperativeAuxiliaries.contains(second) { return true }
+            if first == "how", howQuestionWords.contains(second) { return true }
+        }
+        // "which" opens statements too ("which is why we left"); it asks only before a noun ("which one").
+        return (first == "what" || first == "which") && questionNouns.contains(second)
+    }
+
     /// Text that arrived uncased (lowercase, no punctuation) gets a closing mark when it reads as a sentence:
-    /// "?" if it opens like a question, otherwise ".".
+    /// "?" if it is plainly a question, otherwise ".". Commands typed at a terminal are left without one.
     private func closeFinalSentence(_ tokens: inout [Token]) {
         guard tokens.filter(\.isWord).count >= 3, let lastIndex = tokens.lastIndex(where: \.isWord) else { return }
         let last = tokens[lastIndex]
@@ -640,9 +753,8 @@ public struct RulesCleaner: TextCleaner {
 
         var first = lastIndex
         while first > 0, tokens[first - 1].isWord, !Self.endsSentence(tokens[first - 1].trail) { first -= 1 }
-        let opener = tokens[first].key
-        let second = first + 1 < tokens.count && tokens[first + 1].isWord ? tokens[first + 1].key : ""
-        let isQuestion = Self.questionOpeners.contains(opener) && !(opener == "how" && second == "to") && !(opener == "what" && second == "a")
-        tokens[lastIndex].trail = isQuestion ? "?" : "."
+        let sentence = tokens[first...lastIndex]
+        guard !Self.looksLikeCommand(sentence) else { return }
+        tokens[lastIndex].trail = Self.isPlainQuestion(sentence) ? "?" : "."
     }
 }
