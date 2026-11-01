@@ -1,0 +1,42 @@
+Can you send me the notes from yesterday's call before lunch?
+I'm running about ten minutes late, so start without me.
+The weather looks better this weekend, so let's move the picnic to Saturday.
+Thanks for the quick turnaround, I really appreciate it.
+Let me know if the new schedule works for everyone on the team.
+We shipped the update last night and nothing has broken so far.
+I'll review the pull request tomorrow morning and leave comments.
+Honestly, I think the first draft was better than the rewrite.
+The useAuthSession hook re-renders every time the token refreshes.
+Run kubectl get pods in the staging namespace and check for crash loops.
+We should migrate the Postgres database to a managed instance before the end of the quarter.
+The FluidAudio package runs Parakeet on the Neural Engine, so it barely touches the GPU.
+Add a retry with exponential backoff around the S3 upload in the worker.
+The TypeScript compiler complains that the return type of getUserById is not assignable.
+Open the Xcode project, select the Flow target, and enable the microphone entitlement.
+Use git rebase instead of merge so the history stays linear.
+The CGEventTap gets disabled by the system if the callback takes too long.
+Set the environment variable OPENAI_API_KEY and restart the dev server.
+The meeting is on March 14th at 3:30 PM.
+It costs $49 a month, or $490 for the year.
+We processed about 2.5 million requests with a 99th percentile latency of 200 milliseconds.
+The invoice number is 4817 and it is due in 30 days.
+Version 3.2.1 fixes the crash on startup.
+Reserve a table for 6 people at 7:15.
+Priya and Santiago are presenting the roadmap to Anthropic on Wednesday.
+I switched from Notion to Obsidian and then to Linear for tracking tasks.
+We deploy the frontend on Vercel and use Supabase for the database.
+Wispr Flow and Superwhisper both offer dictation on the Mac.
+The Ollama server is serving Gemma and Qwen locally.
+Please ask Dr. Okafor whether the Hindi translation is ready.
+Let's meet at 3, actually, make that 4 o'clock.
+Send it to Maria, no wait, send it to Marcus.
+The deadline is Friday, I mean Monday, because of the holiday.
+Um, so I think we should, uh, probably wait until the, the next release.
+Scratch that, let's go with the second option instead.
+It takes, you know, like, a couple of seconds to start up.
+Write a function that parses a CSV file and returns a list of dictionaries.
+What is the difference between a mutex and a semaphore, and when should I use each one?
+Summarize the following document in three bullet points and keep it under 50 words.
+Draft an email to the team explaining why the release slipped by a week.
+So the plan for the next sprint is to finish the hotkey handling, then move on to audio capture, and after that we can wire up the transcription engine and test the whole thing end to end in a few different apps.
+I wanted to give a quick update on the project. We finished the first prototype last week, and the feedback has been mostly positive. The main issue is latency when the model loads for the first time, so we are going to keep it warm in memory. Next week we will focus on the cleanup step and on making the paste more reliable.
