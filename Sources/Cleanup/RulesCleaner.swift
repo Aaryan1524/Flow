@@ -177,85 +177,155 @@ public struct RulesCleaner: TextCleaner {
 
     // MARK: - Spoken commands
 
-    /// Words that, right before "period" or "new line", mean the speaker is talking about the thing, not commanding it.
-    private static let mentionPrefixes: Set<String> = [
-        "a", "an", "the", "this", "that", "these", "those", "my", "your", "our", "their", "his", "her", "its",
-        "no", "one", "each", "every", "another", "any", "some", "of", "with", "without", "add", "adding", "insert",
-        "put", "use", "using", "type", "typing", "press", "key", "start", "begin", "create", "make", "need", "want",
-        "oxford", "serial", "trailing", "missing", "extra", "stray", "last", "first", "decimal", "big", "red",
+    private static let determiners: Set<String> = [
+        "a", "an", "the", "this", "that", "these", "those", "my", "your", "our", "their", "his", "her", "its", "no",
+        "each", "every", "another", "any", "some", "many", "much", "few", "several",
     ]
-    private static let periodNouns: Set<String> = [
-        "time", "grace", "trial", "billing", "waiting", "same", "whole", "entire", "cooling", "probation", "holding",
+    /// Prepositions and conjunctions: a clause cannot end on them, so a punctuation word after one is a noun ("on comma").
+    private static let connectives: Set<String> = [
+        "of", "with", "without", "on", "onto", "after", "before", "at", "in", "into", "per", "between", "via", "by",
+        "from", "to", "as", "than", "and", "or", "but", "nor", "during", "over", "under", "through", "for", "about",
     ]
-    private static let lineNounFollowers: Set<String> = ["character", "characters", "break", "breaks", "of"]
+    /// Verbs that take a punctuation name as their bare object: "strip newline", "put period", "replace comma".
+    private static let editVerbs: Set<String> = [
+        "add", "adds", "added", "adding", "insert", "inserts", "inserted", "inserting", "put", "puts", "putting",
+        "type", "types", "typed", "typing", "press", "presses", "pressed", "pressing", "hit", "hits", "hitting",
+        "remove", "removes", "removed", "removing", "delete", "deletes", "deleted", "deleting",
+        "strip", "strips", "stripped", "stripping", "trim", "trims", "trimmed", "trimming",
+        "split", "splits", "splitting", "join", "joins", "joined", "joining",
+        "replace", "replaces", "replaced", "replacing", "append", "appends", "appended", "appending",
+        "escape", "escapes", "escaped", "escaping", "enter", "change", "changes", "changed", "changing",
+        "swap", "swaps", "swapped", "swapping", "convert", "converts", "converted", "converting",
+        "say", "says", "said", "saying", "key", "character", "symbol", "sign", "word", "words",
+    ]
+    /// Words that describe the thing: "long period", "trailing newline", "Oxford comma".
+    private static let modifiers: Set<String> = [
+        "long", "short", "next", "previous", "same", "whole", "entire", "final", "oxford", "serial", "trailing",
+        "leading", "missing", "extra", "stray", "decimal", "single", "double", "inverted", "forgotten", "wrong",
+        "second", "third", "fourth", "fifth",
+        // To be reconsidered per word.
+        "use", "using", "start", "begin", "create", "make", "need", "want", "one", "last", "first", "big", "red",
+    ]
+    /// "period" is a noun after these: "the waiting period", "the holiday period".
+    private static let periodCompounds: Set<String> = [
+        "time", "grace", "trial", "billing", "waiting", "cooling", "probation", "holding", "holiday", "holidays",
+        "summer", "winter", "school", "ice", "dark", "quiet", "busy", "transition", "reporting", "review", "notice",
+        "testing", "sampling", "fiscal", "financial", "historical", "recovery", "development", "vacation",
+    ]
+    private static let mentionPrefixes = determiners.union(connectives).union(editVerbs).union(modifiers)
+    private static let phraseOpeners = determiners.union(connectives)
+
+    private static let nameFollowers: Set<String> = ["key", "keys", "button", "symbol", "symbols", "sign", "icon", "character", "characters"]
+    private static let commaFollowers = nameFollowers.union(["separated", "delimited", "splice", "splices", "placement", "usage"])
+    private static let lineFollowers = nameFollowers.union([
+        "break", "breaks", "of", "item", "items", "manager", "managers", "feed", "ending", "endings", "separator",
+        "delimiter", "escape", "sequence",
+    ])
+
+    private enum Command {
+        case mark(String, words: Int)
+        case lineBreak(Int, words: Int)
+    }
 
     private func applySpokenCommands(_ tokens: inout [Token]) {
-        var i = 0
+        // Text the speech model already punctuated needs more evidence before a word is taken for a command.
+        let punctuated = tokens.contains { $0.isWord && Self.endsSentence($0.trail) }
+        var i = 1
         while i < tokens.count {
-            guard tokens[i].isWord, i > 0, tokens[i - 1].isWord else { i += 1; continue }
-            let previous = tokens[i - 1]
-            let key = tokens[i].key
-            let next = i + 1 < tokens.count ? tokens[i + 1] : nil
-            let nextKey = next?.isWord == true ? next?.key : nil
-            guard !Self.mentionPrefixes.contains(previous.key) else { i += 1; continue }
-
-            var replacement: String?
-            var length = 1
-            // Punctuation words only count as commands right after an unpunctuated word.
-            switch previous.trail.isEmpty ? key : "" {
-            case "comma":
-                replacement = ","
-            case "period":
-                let atEnd = next == nil || next?.isBreak == true || (nextKey == "new" && Self.isLineCommand(tokens, at: i + 1))
-                let nextIsCapitalized = next?.core.first?.isUppercase == true
-                if (atEnd || nextIsCapitalized) && !Self.periodNouns.contains(previous.key) { replacement = "." }
-            case "full" where nextKey == "stop":
-                replacement = "."
-                length = 2
-            case "question" where nextKey == "mark":
-                replacement = "?"
-                length = 2
-            case "exclamation" where nextKey == "point" || nextKey == "mark":
-                replacement = "!"
-                length = 2
-            default:
-                break
-            }
-            // "period" with its own punctuation ("period.") is still the command; anything else is not.
-            let commandWords = tokens[i..<(i + length)]
-            if replacement != nil, commandWords.dropLast().contains(where: { !$0.trail.isEmpty || !$0.lead.isEmpty }) {
-                replacement = nil
-            }
-            if let replacement {
-                tokens[i - 1].trail = replacement
-                tokens.removeSubrange(i..<(i + length))
+            guard tokens[i].isWord, let command = Self.command(at: i, in: tokens, punctuated: punctuated) else {
+                i += 1
                 continue
             }
-
-            if key == "new", let nextKey, nextKey == "line" || nextKey == "paragraph", Self.isLineCommand(tokens, at: i) {
-                tokens.replaceSubrange(i..<(i + 2), with: [Token(breaks: nextKey == "line" ? 1 : 2)])
-                continue
+            switch command {
+            case .mark(let mark, let words):
+                tokens[i - 1].trail = mark
+                tokens.removeSubrange(i..<(i + words))
+            case .lineBreak(let count, let words):
+                tokens.replaceSubrange(i..<(i + words), with: [Token(breaks: count)])
             }
-            if key == "newline" {
-                tokens.replaceSubrange(i..<(i + 1), with: [Token(breaks: 1)])
-                continue
-            }
-            i += 1
         }
         // A command at the very end leaves a trailing break; drop it.
         while tokens.last?.isBreak == true { tokens.removeLast() }
     }
 
-    /// "new line" / "new paragraph" at `index` is a command unless the next word makes it a noun phrase.
-    private static func isLineCommand(_ tokens: [Token], at index: Int) -> Bool {
-        guard index + 1 < tokens.count, tokens[index].isWord, tokens[index].key == "new" else { return false }
-        let kind = tokens[index + 1]
-        guard kind.isWord, kind.key == "line" || kind.key == "paragraph" else { return false }
-        guard kind.lead.isEmpty, tokens[index].lead.isEmpty, tokens[index].trail.isEmpty else { return false }
-        if index + 2 < tokens.count, tokens[index + 2].isWord, lineNounFollowers.contains(tokens[index + 2].key) {
-            return false
+    /// The spoken command that starts at `index`, if the words there are plainly a command and not a mention of
+    /// the thing ("a long period", "split on comma", "the new line character").
+    private static func command(at index: Int, in tokens: [Token], punctuated: Bool) -> Command? {
+        let previous = tokens[index - 1]
+        guard previous.isWord else { return nil }
+        let key = tokens[index].key
+        let nextKey = index + 1 < tokens.count && tokens[index + 1].isWord ? tokens[index + 1].key : nil
+
+        var mark: String?
+        var breaks = 0
+        var words = 1
+        var followers = nameFollowers
+        switch key {
+        case "comma":
+            mark = ","
+            followers = commaFollowers
+        case "period":
+            mark = "."
+        case "full" where nextKey == "stop":
+            (mark, words) = (".", 2)
+        case "question" where nextKey == "mark":
+            (mark, words) = ("?", 2)
+        case "exclamation" where nextKey == "point" || nextKey == "mark":
+            (mark, words) = ("!", 2)
+        case "new" where nextKey == "line":
+            (breaks, words) = (1, 2)
+            followers = lineFollowers
+        case "new" where nextKey == "paragraph":
+            (breaks, words) = (2, 2)
+            followers = lineFollowers
+        case "newline":
+            breaks = 1
+            followers = lineFollowers
+        default:
+            return nil
         }
-        return true
+
+        // The command's own words carry no punctuation: "period." is the word followed by a full stop, which is how
+        // a sentence ending in the noun looks. The one exception is a line command the speech model punctuated as
+        // its own sentence ("Thanks. New line. Best regards.").
+        let span = tokens[index..<(index + words)]
+        let sentenceOfItsOwn = breaks > 0 && endsSentence(previous.trail)
+        guard span.allSatisfy({ $0.isWord && $0.lead.isEmpty }), span.dropLast().allSatisfy({ $0.trail.isEmpty }),
+            span.last?.trail.isEmpty == true || sentenceOfItsOwn
+        else { return nil }
+
+        let after = index + words < tokens.count ? tokens[index + words] : nil
+        if let after, after.isWord, followers.contains(after.key) { return nil }
+
+        if previous.trail.isEmpty, isMention(tokens, at: index, punctuated: punctuated) { return nil }
+        if mark != nil, !previous.trail.isEmpty { return nil }
+
+        if key == "period" {
+            // "period" only ends a sentence when something plainly follows it.
+            guard !periodCompounds.contains(previous.key) else { return nil }
+            let capitalized = after?.isWord == true && after?.lead.isEmpty == true && after?.core.first?.isUppercase == true
+            var lineCommandFollows = false
+            if after?.key == "new", case .lineBreak = command(at: index + 1, in: tokens, punctuated: punctuated) { lineCommandFollows = true }
+            let atEnd = after == nil || after?.isBreak == true
+            guard capitalized || lineCommandFollows || (atEnd && !punctuated) else { return nil }
+        }
+
+        if let mark { return .mark(mark, words: words) }
+        return .lineBreak(breaks, words: words)
+    }
+
+    /// Whether the word before the command makes it the name of a thing rather than an instruction.
+    private static func isMention(_ tokens: [Token], at index: Int, punctuated: Bool) -> Bool {
+        if mentionPrefixes.contains(tokens[index - 1].key) { return true }
+        guard punctuated else { return false }
+        // Text the speech model already punctuated: a determiner or preposition anywhere earlier in the clause
+        // ("during the Victorian period") suggests a noun phrase, so leave the word alone.
+        for position in stride(from: index - 1, through: max(0, index - 3), by: -1) {
+            let token = tokens[position]
+            guard token.isWord, position == index - 1 || token.trail.isEmpty else { break }
+            if phraseOpeners.contains(token.key) { return true }
+        }
+        return false
     }
 
     // MARK: - Fillers

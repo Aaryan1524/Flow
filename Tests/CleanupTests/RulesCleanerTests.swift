@@ -259,3 +259,43 @@ extension RulesCleanerTests {
         #expect(clean("  ...  ") == "...")
     }
 }
+
+// MARK: - Punctuation words used as ordinary nouns
+
+extension RulesCleanerTests {
+    @Test func keepsPeriodAsAWordWhenItEndsASentence() {
+        let samples = [
+            "It was a long period. Then it ended.",
+            "Sales dipped during the holiday period.",
+            "Put it after the second comma.",
+            "The trial period ended on Friday.",
+            "Expect delays over the next period.",
+            "He asked what the period was for.",
+        ]
+        for sample in samples {
+            #expect(clean(sample) == sample, "changed: \(sample)")
+        }
+    }
+
+    @Test func keepsNewlineAndCommaAsWordsAfterEditingVerbsAndPrepositions() {
+        #expect(clean("strip newline from the string") == "Strip newline from the string.")
+        #expect(clean("split the string on comma") == "Split the string on comma.")
+        #expect(clean("replace each newline with a space") == "Replace each newline with a space.")
+        #expect(clean("remove newline characters") == "Remove newline characters.")
+        #expect(clean("swap period for comma") == "Swap period for comma.")
+        #expect(clean("save it as comma separated values") == "Save it as comma separated values.")
+    }
+
+    @Test func aPunctuationWordWithItsOwnPunctuationIsNotACommand() {
+        #expect(clean("We talked about the placement of comma, and period.") == "We talked about the placement of comma, and period.")
+        #expect(clean("Is that a question mark? It is not.") == "Is that a question mark? It is not.")
+        #expect(clean("She ended it with an exclamation point.") == "She ended it with an exclamation point.")
+        #expect(clean("The car came to a full stop.") == "The car came to a full stop.")
+    }
+
+    @Test func inPunctuatedTextPeriodNeedsACapitalizedWordAfterIt() {
+        #expect(clean("During the Victorian period Queen Victoria reigned.") == "During the Victorian period Queen Victoria reigned.")
+        #expect(clean("Remember the holiday period") == "Remember the holiday period")
+        #expect(clean("We shipped it period Then we left.") == "We shipped it. Then we left.")
+    }
+}
