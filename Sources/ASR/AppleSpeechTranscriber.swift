@@ -168,13 +168,14 @@ public final class AppleSpeechTranscriber: Transcriber {
         guard let output = AVAudioPCMBuffer(pcmFormat: target, frameCapacity: capacity) else {
             throw Failure.conversion("cannot allocate the output buffer")
         }
-        let delivered = Mutex(false)
+        nonisolated(unsafe) var delivered = false
         var error: NSError?
         let status = converter.convert(to: output, error: &error) { _, inputStatus in
-            if delivered.withLock({ let done = $0; $0 = true; return done }) {
+            if delivered {
                 inputStatus.pointee = .endOfStream
                 return nil
             }
+            delivered = true
             inputStatus.pointee = .haveData
             return input
         }
