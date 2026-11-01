@@ -466,3 +466,150 @@ extension RulesCleanerTests {
         #expect(clean("brew is installed") == "Brew is installed.")
     }
 }
+
+// MARK: - Already-clean text, including words that double as commands
+
+extension RulesCleanerTests {
+    private static let cleanSentences = [
+        // Punctuation and layout words used as ordinary nouns and verbs.
+        "The period of the lease ends in June.",
+        "This period was marked by rapid growth.",
+        "A comma splice joins two sentences incorrectly.",
+        "The comma after the greeting is optional.",
+        "Take the second line and move it down.",
+        "The line at the bakery was long today.",
+        "We drew a straight line between the two points.",
+        "Add a new line at the end of the file.",
+        "The new line of products launches in spring.",
+        "We opened a new account last week.",
+        "A new paragraph begins after the heading.",
+        "That is the point of the exercise.",
+        "The point is that we shipped on time.",
+        "Please stop by my desk this afternoon.",
+        "The bus stop is two blocks away.",
+        "We came to a full stop at the light.",
+        "Mark the box that applies to you.",
+        "Mark will join us for lunch on Friday.",
+        "She asked a question about the invoice.",
+        "Is that a question mark or a comma?",
+        "The exclamation point at the end made it sound angry.",
+        "Use a period to end the sentence.",
+        "The question mark goes at the end of a question.",
+        "Put a comma after each item in the list.",
+        "Press Enter for a new line.",
+        "Line 42 of the file has a typo.",
+        "It was a long period. Then it ended.",
+        "Sales dipped during the holiday period.",
+        "Put it after the second comma.",
+        "Over the next period we will hire three people.",
+        // Repeated proper nouns and deliberate repeats.
+        "New York New York is a great song.",
+        "We went to Bora Bora last summer.",
+        "Mahi Mahi is on the menu tonight.",
+        "Walla Walla is a city in Washington.",
+        "Hawaii and Bora Bora are both beautiful.",
+        "Hey hey hey, that's my seat!",
+        "He said, \"Wait, wait, wait.\" Then he left.",
+        "It was very, very cold.",
+        "Yes, yes, of course.",
+        "They said bye bye and left.",
+        "I think that that is correct.",
+        // Code, paths, flags and identifiers.
+        "Run kubectl get pods -n staging to list them.",
+        "Set LOG_LEVEL=debug before you start the server.",
+        "See src/main.swift for the entry point.",
+        "Call fetchUser(id) and check the result.",
+        "The file config.json lives in ~/.config/flow.",
+        "Use the --verbose flag for more output.",
+        "The loop variable i runs from 0 to 9.",
+        "Version 1.2.3 was released on 2024-05-01.",
+        "Email me at dana@example.com or call 555-0100.",
+        // Questions, openers and short forms.
+        "Can you send me the file?",
+        "Would you like some tea?",
+        "When is the meeting?",
+        "How many ounces are in a pound?",
+        "Which is why we left early.",
+        "Would love to help with that.",
+        "Should be fine by tomorrow.",
+        "Thanks, that works for me.",
+        "Hello, world.",
+        "Step one: open the file. Step two: run the build.",
+        "Item one, item two, and item three.",
+        "I'm sure it's fine, but let's check.",
+        "Mr. Patel will arrive at 3 p.m. today.",
+        "The U.S. economy grew last year.",
+        "Don't stop believing.",
+        "What a great day!",
+        "Anyway, back to the point.",
+        "First, we wash. Second, we rinse.",
+        "The city of Winston-Salem is in North Carolina.",
+        "Pre- and post-processing both run.",
+        // Layout.
+        "Dear team,\n\nThe release is ready.\n\nBest regards,\nDana",
+        "Agenda\n\n1. Budget review.\n2. Hiring plan.\n3. Open questions.",
+    ]
+
+    @Test func leavesManyMoreAlreadyCleanSentencesUnchanged() {
+        #expect(Self.cleanSentences.count >= 40)
+        for sample in Self.cleanSentences {
+            #expect(clean(sample) == sample, "changed: \(sample.debugDescription) -> \(clean(sample).debugDescription)")
+        }
+    }
+
+    @Test func leavesGeneratedPunctuatedSentencesUnchanged() {
+        var random = SplitMix64(seed: 20_260_501)
+        for _ in 0..<400 {
+            let sample = Self.generatedText(&random)
+            #expect(clean(sample) == sample, "changed: \(sample.debugDescription) -> \(clean(sample).debugDescription)")
+        }
+    }
+
+    private static func generatedText(_ random: inout SplitMix64) -> String {
+        let subjects = [
+            "The team", "My manager", "Dana", "Marco and Sofia", "The editor", "She", "They", "Our new line of products",
+            "The comma key", "The period of rest", "Everyone at the new office", "Priya", "The question mark", "A full stop",
+        ]
+        let predicates = [
+            "reviewed the draft", "added a comma after the greeting", "spent the holiday period at home",
+            "asked about the exclamation point", "moved to New York New York", "visited Bora Bora", "split the line in two",
+            "marked the new paragraph", "forgot the period at the end", "waited at the bus stop", "said no, no, no",
+            "pressed the new line key", "ran kubectl get pods", "opened config.json", "checked the loop variable i",
+            "used the --verbose flag", "called fetchUser(id)", "read src/main.swift", "stopped at the second comma",
+            "found a long period of silence", "typed a question mark", "left a stop sign on the desk",
+        ]
+        let tails = ["", " on Monday", " before lunch", " without any trouble", " this week", " at 3:30 PM", " in Q3"]
+        let questions = [
+            "Did the team finish the draft", "Can you send the file", "Is the new line of products ready",
+            "Would Dana review it", "Where is the period key", "How many commas are in the list",
+        ]
+        func pick(_ values: [String], _ random: inout SplitMix64) -> String { values[Int(random.next() % UInt64(values.count))] }
+
+        var sentences: [String] = []
+        for _ in 0..<(1 + Int(random.next() % 3)) {
+            if random.next() % 4 == 0 {
+                sentences.append(pick(questions, &random) + pick(tails, &random) + "?")
+            } else {
+                let mark = random.next() % 6 == 0 ? "!" : "."
+                sentences.append(pick(subjects, &random) + " " + pick(predicates, &random) + pick(tails, &random) + mark)
+            }
+        }
+        let separator = [" ", " ", "\n", "\n\n"][Int(random.next() % 4)]
+        return sentences.joined(separator: separator)
+    }
+}
+
+/// A small seedable generator, so the fuzz test is reproducible.
+private struct SplitMix64 {
+    var state: UInt64
+
+    init(seed: UInt64) { state = seed }
+
+    mutating func next() -> UInt64 {
+        state &+= 0x9E37_79B9_7F4A_7C15
+        var z = state
+        z = (z ^ (z >> 30)) &* 0xBF58_476D_1CE4_E5B9
+        z = (z ^ (z >> 27)) &* 0x94D0_49BB_1331_11EB
+        return z ^ (z >> 31)
+    }
+}
