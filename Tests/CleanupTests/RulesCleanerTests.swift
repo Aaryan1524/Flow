@@ -129,6 +129,14 @@ import Testing
         #expect(clean("Too    many   spaces here.") == "Too many spaces here.")
     }
 
+    @Test func closesUncasedQuestionsWithAQuestionMark() {
+        #expect(clean("what is the capital of france") == "What is the capital of france?")
+        #expect(clean("can you send me the file") == "Can you send me the file?")
+        #expect(clean("how to fix the build") == "How to fix the build.")
+        #expect(clean("what a great day") == "What a great day.")
+        #expect(clean("the report is due at 5") == "The report is due at 5.")
+    }
+
     @Test func closesUncasedTextWithAPeriodButNotCasedText() {
         #expect(clean("send it to the team") == "Send it to the team.")
         #expect(clean("Meeting notes for Friday") == "Meeting notes for Friday")

@@ -434,12 +434,24 @@ public struct RulesCleaner: TextCleaner {
         }
     }
 
-    /// Text that arrived uncased (lowercase, no punctuation) gets a closing period when it reads as a sentence.
+    /// Words that open a question when the text has no punctuation to say so.
+    private static let questionOpeners: Set<String> = [
+        "what", "who", "whom", "whose", "where", "when", "why", "which", "how",
+        "is", "are", "was", "were", "am", "does", "did", "can", "could", "would", "should",
+    ]
+
+    /// Text that arrived uncased (lowercase, no punctuation) gets a closing mark when it reads as a sentence:
+    /// "?" if it opens like a question, otherwise ".".
     private func closeFinalSentence(_ tokens: inout [Token]) {
-        let words = tokens.filter(\.isWord)
-        guard words.count >= 3, let lastIndex = tokens.lastIndex(where: \.isWord) else { return }
+        guard tokens.filter(\.isWord).count >= 3, let lastIndex = tokens.lastIndex(where: \.isWord) else { return }
         let last = tokens[lastIndex]
-        guard last.trail.isEmpty, last.core.allSatisfy({ $0.isLetter || $0 == "'" }) else { return }
-        tokens[lastIndex].trail = "."
+        guard last.trail.isEmpty, last.core.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "'" }) else { return }
+
+        var first = lastIndex
+        while first > 0, tokens[first - 1].isWord, !Self.endsSentence(tokens[first - 1].trail) { first -= 1 }
+        let opener = tokens[first].key
+        let second = first + 1 < tokens.count && tokens[first + 1].isWord ? tokens[first + 1].key : ""
+        let isQuestion = Self.questionOpeners.contains(opener) && !(opener == "how" && second == "to") && !(opener == "what" && second == "a")
+        tokens[lastIndex].trail = isQuestion ? "?" : "."
     }
 }
