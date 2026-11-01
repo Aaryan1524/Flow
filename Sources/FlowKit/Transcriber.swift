@@ -1,14 +1,36 @@
 import Foundation
 
+/// A vocabulary term an engine put in place of the word it first heard.
+public struct VocabularyReplacement: Sendable, Equatable {
+    /// What the engine decoded before vocabulary boosting ("over", "Superbase").
+    public let original: String
+    /// The vocabulary term that replaced it.
+    public let term: String
+    /// Why the engine made the swap, in its own words. For diagnostics only.
+    public let detail: String
+
+    public init(original: String, term: String, detail: String = "") {
+        self.original = original
+        self.term = term
+        self.detail = detail
+    }
+}
+
 /// Result of one speech-to-text run.
 public struct Transcript: Sendable, Equatable {
     public let text: String
     /// Wall-clock seconds spent transcribing (excludes model loading).
     public let seconds: Double
+    /// Substitutions made by vocabulary boosting. Empty for engines without it.
+    public let replacements: [VocabularyReplacement]
+    /// Vocabulary terms the engine's keyword spotter heard in the audio, whether or not it changed the text.
+    public let detectedTerms: [String]
 
-    public init(text: String, seconds: Double) {
+    public init(text: String, seconds: Double, replacements: [VocabularyReplacement] = [], detectedTerms: [String] = []) {
         self.text = text
         self.seconds = seconds
+        self.replacements = replacements
+        self.detectedTerms = detectedTerms
     }
 }
 

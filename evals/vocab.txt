@@ -1,0 +1,31 @@
+# Custom vocabulary for the eval: one term per line, taken from evals/script.txt.
+# Lines starting with # are comments. Plain terms only (no aliases), so a boosted engine
+# is never told what its own mistakes look like.
+Vercel
+Supabase
+useAuthSession
+getUserById
+Wispr Flow
+Superwhisper
+kubectl
+FluidAudio
+Parakeet
+Neural Engine
+TypeScript
+Postgres
+S3
+Xcode
+CGEventTap
+OPENAI_API_KEY
+Anthropic
+Priya
+Santiago
+Maria
+Marcus
+Okafor
+Notion
+Obsidian
+Linear
+Ollama
+Gemma
+Qwen
