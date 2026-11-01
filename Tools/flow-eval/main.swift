@@ -197,6 +197,9 @@ func run() async {
         for item in worst.sorted(by: { $0.1 > $1.1 }).prefix(3) where item.1 > 0 {
             print(String(format: "    %@  %.0f%%\n      ref: %@\n      hyp: %@", item.0, item.1 * 100, item.2.trimmingCharacters(in: .whitespacesAndNewlines), item.3))
         }
+        if options.verbose && !vocabulary.isEmpty {
+            print("    terms missed: " + missedTerms(outcomes, terms: vocabulary).joined(separator: ", "))
+        }
         runs.append(EngineRun(name: engineName, outcomes: outcomes))
     }
 

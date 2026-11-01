@@ -41,6 +41,15 @@ func termRecall(_ outcomes: [ClipOutcome], terms: [String], useRaw: Bool = false
     }
 }
 
+/// Terms in a reference that the engine's text lacks, as "clip-27 Vercel".
+func missedTerms(_ outcomes: [ClipOutcome], terms: [String]) -> [String] {
+    outcomes.flatMap { outcome in
+        TermRecall.termsPresent(in: outcome.clip.reference, terms: terms)
+            .filter { !TermRecall.contains(outcome.text, term: $0, caseSensitive: false) }
+            .map { "\(outcome.clip.name) \($0)" }
+    }
+}
+
 private func wordErrorRate(_ outcomes: [ClipOutcome]) -> Double? {
     let words = outcomes.reduce(0) { $0 + $1.referenceWords }
     return words == 0 ? nil : outcomes.reduce(0.0) { $0 + $1.wordErrors } / Double(words)
