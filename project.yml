@@ -47,5 +47,7 @@ targets:
         ENABLE_APP_SANDBOX: NO
         ENABLE_HARDENED_RUNTIME: NO
         CODE_SIGN_STYLE: Automatic
-        # Set your team once Xcode is signed in: DEVELOPMENT_TEAM=XXXXXXXXXX
-        # A stable signature keeps the Accessibility and Input Monitoring permissions across rebuilds.
+        # A stable signature keeps the Microphone, Accessibility and Input Monitoring permissions across rebuilds.
+        # Your team ID comes from the environment, so it never lands in the repo:
+        #   DEVELOPMENT_TEAM=XXXXXXXXXX xcodegen generate
+        DEVELOPMENT_TEAM: ${DEVELOPMENT_TEAM}
