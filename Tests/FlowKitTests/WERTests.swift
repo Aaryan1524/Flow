@@ -55,6 +55,25 @@ import Testing
         #expect(words[0].startsSentence && words[5].startsSentence && !words[1].startsSentence)
     }
 
+    @Test func wordsKeepTheirCapitalsAndTheMarksBeforeThem() {
+        let lexed = WER.lexed("Dear Dana,\n\nThe NASA team is ready. Go?", numberAware: false)
+        #expect(lexed.words.map(\.cased) == ["Dear", "Dana", "The", "NASA", "team", "is", "ready", "Go"])
+        #expect(lexed.words[1].marksBefore.isEmpty)
+        #expect(lexed.words[2].marksBefore == [.comma, .newline])
+        #expect(lexed.words[7].marksBefore == [.period])
+        #expect(lexed.trailingMarks == [.question])
+        #expect(WER.lexed("it ends here.", numberAware: false).trailingMarks == [.period])
+        #expect(WER.lexed("no marks", numberAware: false).trailingMarks.isEmpty)
+        // A dot that closes an abbreviation is not a sentence mark.
+        #expect(WER.lexed("at 3:30 p.m. today", numberAware: true).words.map(\.marksBefore.rawValue) == [0, 0, 0, 0])
+    }
+
+    @Test func aCurrencySignComesAfterTheScaleWordsAsItIsSpoken() {
+        #expect(WER.words("we raised $10 million", numberAware: true).map(\.text) == ["we", "raised", "10", "million", "dollars"])
+        #expect(WER.words("it cost $49 today", numberAware: true).map(\.text) == ["it", "cost", "49", "dollars", "today"])
+        #expect(WER.words("it cost $1.5 billion", numberAware: true).map(\.text) == ["it", "cost", "1.5", "billion", "dollars"])
+    }
+
     @Test func numberAwareWordsKeepNumbersWholeAndSpellOutSymbols() {
         let text = "at 3:30 for $1,249.99 and 15% on v2.4.1"
         #expect(WER.words(text, numberAware: true).map(\.text) == ["at", "3:30", "for", "1,249.99", "dollars", "and", "15", "percent", "on", "v2.4.1"])
