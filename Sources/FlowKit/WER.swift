@@ -26,8 +26,8 @@ public enum WER {
     struct Word: Equatable, Sendable {
         /// Lowercased, as `tokens` returns it.
         var text: String
-        /// The same letters as written, so "NASA" and "Dana" keep their capitals.
-        var cased = ""
+        /// Two or more letters, all of them upper case in the text ("NASA").
+        var allCaps = false
         /// Punctuation and line breaks between the previous word and this one.
         var marksBefore: Marks = []
         /// Added by `numberAware` for a "%" or currency sign ("percent", "dollars"); it is not written as a word.
@@ -52,31 +52,27 @@ public enum WER {
     /// `words`, plus the punctuation after the last word.
     static func lexed(_ text: String, numberAware: Bool = false) -> (words: [Word], trailingMarks: Marks) {
         var lowered: [Unicode.Scalar] = []
-        var written: [Unicode.Scalar] = []
         var uppercase: [Bool] = []
         lowered.reserveCapacity(text.unicodeScalars.count)
-        written.reserveCapacity(lowered.capacity)
         uppercase.reserveCapacity(lowered.capacity)
         for scalar in text.unicodeScalars {
             if scalar.isASCII {
                 let isUpper = scalar.value >= 65 && scalar.value <= 90
                 lowered.append(isUpper ? Unicode.Scalar(scalar.value + 32)! : scalar)
-                written.append(scalar)
                 uppercase.append(isUpper)
                 continue
             }
             let isUpper = scalar.properties.isUppercase
-            for (position, mapped) in scalar.properties.lowercaseMapping.unicodeScalars.enumerated() {
-                let plain: Unicode.Scalar = mapped == "\u{2019}" ? "'" : mapped
-                lowered.append(plain)
-                written.append(position == 0 && scalar != "\u{2019}" ? scalar : plain)
+            for mapped in scalar.properties.lowercaseMapping.unicodeScalars {
+                lowered.append(mapped == "\u{2019}" ? "'" : mapped)
                 uppercase.append(isUpper)
             }
         }
 
         var result: [Word] = []
         var token = String.UnicodeScalarView()
-        var cased = String.UnicodeScalarView()
+        var tokenLetters = 0
+        var tokenUpper = 0
         var tokenCapitalized = false
         var tokenAfterComma = false
         var tokenStartsSentence = false
@@ -91,11 +87,12 @@ public enum WER {
 
         func finishToken() {
             guard !token.isEmpty else { return }
-            let raw = String(token)
-            let rawCased = String(cased)
+            let hyphenAfter = token.last == "-"
+            let edged = hyphenAfter || token.first == "-" || token.first == "'" || token.last == "'"
+            var text = String(token)
+            if edged { text = text.trimmingCharacters(in: trimmed) }
+            let allCaps = tokenLetters >= 2 && tokenUpper == tokenLetters
             token = String.UnicodeScalarView()
-            cased = String.UnicodeScalarView()
-            let text = raw.trimmingCharacters(in: trimmed)
             if text.isEmpty {
                 // Nothing but quote marks or hyphens: leave the layout marks for the next word.
                 pendingComma = pendingComma || tokenAfterComma
@@ -105,10 +102,10 @@ public enum WER {
             }
             result.append(
                 Word(
-                    text: text, cased: rawCased.trimmingCharacters(in: trimmed), marksBefore: tokenMarks, afterComma: tokenAfterComma,
-                    capitalized: tokenCapitalized, startsSentence: tokenStartsSentence, hyphenAfter: raw.hasSuffix("-")))
+                    text: text, allCaps: allCaps, marksBefore: tokenMarks, afterComma: tokenAfterComma, capitalized: tokenCapitalized,
+                    startsSentence: tokenStartsSentence, hyphenAfter: hyphenAfter))
             if numberAware, let currency = pendingCurrency, isDigit(text.unicodeScalars.first!) {
-                result.append(Word(text: currency, cased: currency, synthetic: true))
+                result.append(Word(text: currency, synthetic: true))
             }
             pendingCurrency = nil
         }
@@ -146,12 +143,17 @@ public enum WER {
                     tokenAfterComma = pendingComma
                     tokenStartsSentence = pendingSentence
                     tokenMarks = pendingMarks
+                    tokenLetters = 0
+                    tokenUpper = 0
                     pendingComma = false
                     pendingSentence = false
                     pendingMarks = []
                 }
                 token.append(scalar)
-                cased.append(written[index])
+                if (scalar.value >= 97 && scalar.value <= 122) || (scalar.value >= 128 && scalar.properties.isAlphabetic) {
+                    tokenLetters += 1
+                    if uppercase[index] { tokenUpper += 1 }
+                }
                 continue
             }
             finishToken()
@@ -184,7 +186,7 @@ public enum WER {
                 pendingMarks.insert(.newline)
             case "%" where numberAware:
                 if let last = result.last, isDigit(last.text.unicodeScalars.first!) {
-                    result.append(Word(text: "percent", cased: "percent", synthetic: true))
+                    result.append(Word(text: "percent", synthetic: true))
                 }
             case "$" where numberAware: pendingCurrency = "dollars"
             case "\u{20AC}" where numberAware: pendingCurrency = "euros"

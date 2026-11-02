@@ -57,7 +57,8 @@ import Testing
 
     @Test func wordsKeepTheirCapitalsAndTheMarksBeforeThem() {
         let lexed = WER.lexed("Dear Dana,\n\nThe NASA team is ready. Go?", numberAware: false)
-        #expect(lexed.words.map(\.cased) == ["Dear", "Dana", "The", "NASA", "team", "is", "ready", "Go"])
+        #expect(lexed.words.map(\.allCaps) == [false, false, false, true, false, false, false, false])
+        #expect(lexed.words.map(\.capitalized) == [true, true, true, true, false, false, false, true])
         #expect(lexed.words[1].marksBefore.isEmpty)
         #expect(lexed.words[2].marksBefore == [.comma, .newline])
         #expect(lexed.words[7].marksBefore == [.period])
