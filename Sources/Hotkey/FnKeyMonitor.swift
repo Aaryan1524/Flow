@@ -21,6 +21,12 @@ public final class FnKeyMonitor {
         gesture = HoldGesture(minimumHold: minimumHold)
     }
 
+    /// Double-tap Fn to record hands-free, then tap once more to finish.
+    public var handsFreeEnabled: Bool {
+        get { gesture.doubleTapWindow != nil }
+        set { gesture.doubleTapWindow = newValue ? 0.4 : nil }
+    }
+
     public static var hasPermission: Bool {
         IOHIDCheckAccess(kIOHIDRequestTypeListenEvent) == kIOHIDAccessTypeGranted || CGPreflightListenEventAccess()
     }
@@ -77,7 +83,7 @@ public final class FnKeyMonitor {
 
     /// Forgets any key that is currently held, e.g. after sleep or a screen lock, when the release may never arrive.
     public func reset() {
-        gesture = HoldGesture(minimumHold: gesture.minimumHold)
+        gesture = HoldGesture(minimumHold: gesture.minimumHold, doubleTapWindow: gesture.doubleTapWindow)
     }
 
     /// macOS turns the tap off if the callback is slow. Turn it back on, and if the Fn release

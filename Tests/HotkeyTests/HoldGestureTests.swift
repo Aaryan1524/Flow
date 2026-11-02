@@ -68,4 +68,78 @@ import Testing
         _ = gesture.handle(.otherKeyDown, at: 2)
         #expect(!gesture.isHolding)
     }
+
+    // MARK: - Hands-free
+
+    private func handsFreeGesture() -> HoldGesture { HoldGesture(minimumHold: 0.2, doubleTapWindow: 0.4) }
+
+    @Test func twoQuickTapsStartHandsFreeRecordingThatOneMoreTapFinishes() {
+        var gesture = handsFreeGesture()
+        #expect(gesture.handle(.fnDown, at: 10) == .started)
+        #expect(gesture.handle(.fnUp, at: 10.08) == .cancelled)  // the first tap on its own
+        #expect(gesture.handle(.fnDown, at: 10.3) == .started)  // within the window
+        #expect(gesture.handle(.fnUp, at: 10.38) == nil)  // latched: still recording
+        #expect(gesture.isRecording)
+        #expect(gesture.handle(.fnDown, at: 15) == .finished)  // the tap that ends it
+        #expect(gesture.handle(.fnUp, at: 15.05) == nil)
+        #expect(!gesture.isRecording)
+    }
+
+    @Test func escapeThrowsAwayAHandsFreeRecording() {
+        var gesture = handsFreeGesture()
+        _ = gesture.handle(.fnDown, at: 1)
+        _ = gesture.handle(.fnUp, at: 1.05)
+        _ = gesture.handle(.fnDown, at: 1.2)
+        _ = gesture.handle(.fnUp, at: 1.25)
+        #expect(gesture.handle(.escape, at: 4) == .cancelled)
+        #expect(!gesture.isRecording)
+        #expect(gesture.handle(.fnDown, at: 6) == .started)
+    }
+
+    @Test func typingWhileTalkingHandsFreeDoesNotCancel() {
+        var gesture = handsFreeGesture()
+        _ = gesture.handle(.fnDown, at: 1)
+        _ = gesture.handle(.fnUp, at: 1.05)
+        _ = gesture.handle(.fnDown, at: 1.2)
+        _ = gesture.handle(.fnUp, at: 1.25)
+        #expect(gesture.handle(.otherKeyDown, at: 2) == nil)
+        #expect(gesture.isRecording)
+    }
+
+    @Test func aTapThenAHoldIsAnOrdinaryHold() {
+        var gesture = handsFreeGesture()
+        _ = gesture.handle(.fnDown, at: 1)
+        _ = gesture.handle(.fnUp, at: 1.05)
+        #expect(gesture.handle(.fnDown, at: 1.2) == .started)
+        #expect(gesture.handle(.fnUp, at: 3) == .finished)  // held: finishes on release
+        #expect(!gesture.isRecording)
+    }
+
+    @Test func tapsTooFarApartAreTwoSeparateTaps() {
+        var gesture = handsFreeGesture()
+        _ = gesture.handle(.fnDown, at: 1)
+        _ = gesture.handle(.fnUp, at: 1.05)
+        _ = gesture.handle(.fnDown, at: 2)  // 0.95 s later: outside the window
+        #expect(gesture.handle(.fnUp, at: 2.05) == .cancelled)
+        #expect(!gesture.isRecording)
+    }
+
+    @Test func withoutTheWindowTwoTapsAreJustTwoCancelledTaps() {
+        var gesture = HoldGesture()
+        _ = gesture.handle(.fnDown, at: 1)
+        _ = gesture.handle(.fnUp, at: 1.05)
+        _ = gesture.handle(.fnDown, at: 1.2)
+        #expect(gesture.handle(.fnUp, at: 1.25) == .cancelled)
+    }
+
+    @Test func fnWithAnotherKeyDoesNotCountAsATap() {
+        var gesture = handsFreeGesture()
+        _ = gesture.handle(.fnDown, at: 1)
+        _ = gesture.handle(.otherKeyDown, at: 1.05)  // Fn+arrow
+        _ = gesture.handle(.fnUp, at: 1.1)
+        // The next quick tap must not be treated as the second half of a double-tap.
+        _ = gesture.handle(.fnDown, at: 1.2)
+        #expect(gesture.handle(.fnUp, at: 1.25) == .cancelled)
+        #expect(!gesture.isRecording)
+    }
 }

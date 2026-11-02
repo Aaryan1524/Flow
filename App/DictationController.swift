@@ -10,6 +10,7 @@ import Insertion
 import Observation
 import OSLog
 import PersonalDictionary
+import ServiceManagement
 
 /// Ties the pieces together: hold Fn, record, transcribe, paste, log.
 ///
@@ -46,6 +47,7 @@ final class DictationController {
     private(set) var activeMicrophoneName = "system default"
     /// For the menu, e.g. "412 terms".
     private(set) var dictionarySummary = ""
+    private(set) var launchAtLoginEnabled = false
 
     @ObservationIgnored private let monitor = FnKeyMonitor()
     @ObservationIgnored private let recorder = MicrophoneRecorder()
@@ -108,6 +110,8 @@ final class DictationController {
     func start() {
         activity = ProcessInfo.processInfo.beginActivity(options: .userInitiated, reason: "Listening for the dictation key")
         monitor.onEvent = { [weak self] event in self?.handle(event) }
+        monitor.handsFreeEnabled = handsFreeSetting
+        launchAtLoginEnabled = SMAppService.mainApp.status == .enabled
         dictionary = DictionaryFiles.combined()
         dictionaryStamp = DictionaryFiles.modificationDate()
         dictionarySummary = Self.summary(of: dictionary)
@@ -136,6 +140,7 @@ final class DictationController {
                 if !monitor.isRunning { monitor.start() }
                 if listening != monitor.isRunning { listening = monitor.isRunning }
                 refreshGlobeKeySetting()
+                monitor.handsFreeEnabled = handsFreeSetting
                 refreshMicrophones()
                 prewarmRecorder()
                 await reloadDictionaryIfChanged()
@@ -243,6 +248,21 @@ final class DictationController {
         }
     }
 
+    // MARK: - Settings
+
+    /// Double-tap Fn to talk hands-free. On unless switched off.
+    private var handsFreeSetting: Bool { UserDefaults.standard.object(forKey: "handsFree") as? Bool ?? true }
+
+    func setLaunchAtLogin(_ enabled: Bool) {
+        do {
+            if enabled { try SMAppService.mainApp.register() } else { try SMAppService.mainApp.unregister() }
+        } catch {
+            log.error("launch at login failed: \(error.localizedDescription, privacy: .public)")
+            notice = "Could not change launch at login. Move Flow to the Applications folder and try again."
+        }
+        launchAtLoginEnabled = SMAppService.mainApp.status == .enabled
+    }
+
     /// Opens your dictionary in the default text editor, creating it with instructions the first time.
     func editDictionary() {
         guard let url = try? DictionaryFiles.ensureUserFileExists() else { return }
@@ -346,15 +366,16 @@ final class DictationController {
                 self?.abandonRecording(reason: "recording stopped after 5 minutes")
             }
         case .cancelled:
-            abandonRecording(reason: nil)
+            // An ordinary cancelled tap must not reset the key tracker: a double-tap needs to remember the first tap.
+            abandonRecording(reason: nil, resetKeyTracking: false)
         case .finished:
             Task { await finishRecording() }
         }
     }
 
     /// Throws the current recording away. Used for taps, Esc, sleep, and the length limit. Nothing is pasted.
-    private func abandonRecording(reason: String?) {
-        monitor.reset()
+    private func abandonRecording(reason: String?, resetKeyTracking: Bool = true) {
+        if resetKeyTracking { monitor.reset() }
         guard status == .recording else { return }
         maxRecordingTask?.cancel()
         recorder.discard()
