@@ -7,8 +7,8 @@ DerivedData/
 xcuserdata/
 
 # Personal data: this repo is public, so nothing recorded or dictated may be committed
-evals/clips/
-evals/refs/
+evals/clips*/
+evals/refs*/
 evals/results/
 *.wav
 *.m4a
