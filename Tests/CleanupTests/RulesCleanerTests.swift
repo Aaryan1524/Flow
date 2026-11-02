@@ -160,6 +160,29 @@ import Testing
         #expect(clean("Ask Dr. patel about it.") == "Ask Dr. patel about it.")
     }
 
+    @Test func doesNotCapitalizeAfterLowercaseAbbreviations() {
+        let samples = [
+            "See fig. below for details.",
+            "Smith et al. showed the same effect.",
+            "Use approx. half the amount.",
+            "Compare the results, cf. the appendix.",
+            "Walk down main st. toward the park.",
+            "Apples vs. oranges is a fair comparison.",
+            "Bring pens, paper, etc. for the class.",
+            "Ask Mrs. patel or Ms. okafor about it.",
+            "Item no. 5 is late.",
+        ]
+        for sample in samples {
+            #expect(clean(sample) == sample, "changed: \(sample.debugDescription) -> \(clean(sample).debugDescription)")
+        }
+    }
+
+    @Test func stillCapitalizesAfterAWordThatLooksLikeAnAbbreviation() {
+        #expect(clean("did it break? no. it works") == "Did it break? No. It works.")
+        #expect(clean("i called al. then he left") == "I called al. Then he left.")
+        #expect(clean("i said no. we left") == "I said no. We left.")
+    }
+
     @Test func doesNotCapitalizeAfterAnEllipsis() {
         #expect(clean("Well... maybe it works.") == "Well... maybe it works.")
         #expect(clean("Well\u{2026} maybe it works.") == "Well\u{2026} maybe it works.")

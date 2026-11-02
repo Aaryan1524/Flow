@@ -658,7 +658,18 @@ public struct RulesCleaner: TextCleaner {
 
     // MARK: - Capitalization
 
-    private static let abbreviations: Set<String> = ["mr", "mrs", "ms", "dr", "prof", "vs", "etc", "jr", "sr", "inc", "ltd"]
+    private static let abbreviations: Set<String> = [
+        "mr", "mrs", "ms", "dr", "prof", "vs", "etc", "jr", "sr", "inc", "ltd", "fig", "figs", "approx", "cf", "st",
+    ]
+
+    /// Whether the word at `index` is an abbreviation, which a sentence carries on after ("see fig. below"). "e.g." and
+    /// "U.S." hold a dot of their own. "al" is one only in "et al."; alone it is a name, and "no" is left out because
+    /// "no." ends a sentence far more often than it abbreviates "number", which a digit follows anyway.
+    private static func isAbbreviation(_ tokens: [Token], at index: Int) -> Bool {
+        let key = tokens[index].key
+        if abbreviations.contains(key) || tokens[index].core.contains(".") { return true }
+        return key == "al" && index > 0 && tokens[index - 1].isWord && tokens[index - 1].key == "et"
+    }
 
     private static func isPlainLowercase(_ core: String) -> Bool {
         guard let first = core.first, first.isLetter else { return false }
@@ -757,7 +768,7 @@ public struct RulesCleaner: TextCleaner {
             {
                 tokens[index].core = Self.capitalizingFirst(core)
             }
-            let abbreviation = Self.abbreviations.contains(tokens[index].key) || core.contains(".")
+            let abbreviation = Self.isAbbreviation(tokens, at: index)
             let trail = tokens[index].trail
             // "Well... maybe" trails off and carries on; it does not start a new sentence.
             let trailsOff = trail.contains("...") || trail.contains("\u{2026}")
