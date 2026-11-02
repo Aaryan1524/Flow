@@ -147,14 +147,19 @@ final class DictationController {
         }
     }
 
-    /// Not set yet means the default. A stored value this build doesn't know falls back to the safe rules-only mode.
+    /// Not set yet means the default. A stored value this build doesn't know falls back to the safe rules-only mode,
+    /// and so does "Rules + AI" while the AI step is switched off.
     private var cleanupMode: CleanupMode {
         guard let stored = UserDefaults.standard.string(forKey: "cleanupMode") else { return Self.defaultCleanupMode }
-        return CleanupMode(rawValue: stored) ?? .rules
+        let mode = CleanupMode(rawValue: stored) ?? .rules
+        return mode == .rulesAndAI && !Self.aiCleanupAvailable ? .rules : mode
     }
 
-    /// Rules only until the AI safety check has been hardened and verified; then this becomes `.rulesAndAI`.
+    /// Rules only until the AI step's safety check has had its final review; then this becomes `.rulesAndAI`.
     static let defaultCleanupMode = CleanupMode.rules
+
+    /// Whether "Rules + AI" is offered and honoured. Off until the delete-only safety check has been attacked and passed.
+    static let aiCleanupAvailable = false
 
     private func loadModel() async {
         status = .loadingModel

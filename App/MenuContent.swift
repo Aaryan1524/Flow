@@ -41,7 +41,7 @@ struct MenuContent: View {
         Picker("Cleanup", selection: $cleanupMode) {
             Text("Off (raw text)").tag("off")
             Text("Rules only (instant)").tag("rules")
-            Text("Rules + AI (experimental)").tag("rulesAndAI")
+            if DictationController.aiCleanupAvailable { Text("Rules + AI (experimental)").tag("rulesAndAI") }
         }
 
         Button("Paste last transcript") { controller.pasteLastTranscript() }
