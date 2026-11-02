@@ -499,9 +499,20 @@ public struct CleanupGuard: Sendable {
         }
     }
 
+    /// After these, "never mind" is the idiom ("never mind the cost"), not a cancelled sentence.
+    private static let neverMindObjects: Set<String> = [
+        "the", "a", "an", "that", "this", "it", "those", "these", "my", "your", "his", "her", "their", "our", "all", "about", "what",
+    ]
+
     private static func cue(at position: Int, core: [Int], tokens: [Token]) -> (length: Int, retraction: Bool)? {
         for candidate in allCues where position + candidate.words.count <= core.count {
             if candidate.words.indices.allSatisfy({ tokens[core[position + $0]].text == candidate.words[$0] && tokens[core[position + $0]].number == nil }) {
+                let next = position + candidate.words.count
+                if candidate.words.last == "mind" || candidate.words == ["nevermind"],
+                    next < core.count, neverMindObjects.contains(tokens[core[next]].text)
+                {
+                    return nil
+                }
                 return (candidate.words.count, candidate.retraction)
             }
         }

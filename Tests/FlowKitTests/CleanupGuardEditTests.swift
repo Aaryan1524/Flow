@@ -310,6 +310,12 @@ import Testing
         #expect(!trusts("Scratch that, let's go with the second option instead.", "Go with the second option instead."))
     }
 
+    @Test func neverMindIsOnlyACancellationWhenNothingFollowsItAsAnObject() {
+        #expect(trusts("never mind let's go with the second option", "Let's go with the second option."))
+        #expect(!trusts("never mind the cost we ship on friday", "The cost we ship on Friday."))
+        #expect(trusts("never mind the cost we ship on friday", "Never mind the cost, we ship on Friday."))
+    }
+
     @Test func aCorrectionBecomesNoMoreThanItsReplacement() {
         // What was retracted may go, but not what the speaker kept saying after it.
         #expect(!trusts("meet at three actually make that four and then bring the handouts", "Meet at four and bring the handouts."))
