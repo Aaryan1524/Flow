@@ -107,34 +107,57 @@ public final class CleanupPipeline: Sendable {
         }
     }
 
-    /// Runs the AI but gives up after `timeout`. The AI call is not cancelled (it may not honour cancellation);
-    /// its late result is simply ignored.
+    /// The AI works through long text in chunks of this many characters, one request each.
+    static let charactersPerChunk = 1800
+
+    /// More text means more chunks, so the time allowed grows with it instead of timing out long dictation.
+    func budget(for text: String) -> Duration {
+        let chunks = max(1, (text.count + Self.charactersPerChunk - 1) / Self.charactersPerChunk)
+        return timeout * chunks
+    }
+
+    /// Runs the AI but gives up after the time budget. Whichever side loses is cancelled: a late AI answer is
+    /// ignored and its chunk loop stops, and the timer stops sleeping as soon as the AI answers.
     private func race(_ ai: TextCleaner, _ text: String) async throws -> String {
-        let finished = OSAllocatedUnfairLock(initialState: false)
+        let budget = budget(for: text)
+        let race = Race()
         return try await withCheckedThrowingContinuation { continuation in
-            let timeout = self.timeout
-            Task {
+            let work = Task {
                 do {
                     let output = try await ai.clean(text)
-                    if Self.claim(finished) { continuation.resume(returning: output) }
+                    if race.claim() { continuation.resume(returning: output) }
                 } catch {
-                    if Self.claim(finished) { continuation.resume(throwing: error) }
+                    if race.claim() { continuation.resume(throwing: error) }
+                }
+                race.cancelTimer()
+            }
+            let timer = Task {
+                try? await Task.sleep(for: budget)
+                if race.claim() {
+                    work.cancel()
+                    continuation.resume(throwing: CleanupPipelineError.timedOut)
                 }
             }
-            Task {
-                try? await Task.sleep(for: timeout)
-                if Self.claim(finished) { continuation.resume(throwing: CleanupPipelineError.timedOut) }
-            }
+            race.setTimer(timer)
         }
     }
 
-    /// True for exactly one caller.
-    private static func claim(_ flag: OSAllocatedUnfairLock<Bool>) -> Bool {
-        flag.withLock { done in
-            if done { return false }
-            done = true
-            return true
+    /// Lets exactly one of the AI and the timer finish the race, and lets the AI stop the timer.
+    private final class Race: Sendable {
+        private let finished = OSAllocatedUnfairLock(initialState: false)
+        private let timer = OSAllocatedUnfairLock<Task<Void, Never>?>(initialState: nil)
+
+        /// True for exactly one caller.
+        func claim() -> Bool {
+            finished.withLock { done in
+                if done { return false }
+                done = true
+                return true
+            }
         }
+
+        func setTimer(_ task: Task<Void, Never>) { timer.withLock { $0 = task } }
+        func cancelTimer() { timer.withLock { $0?.cancel() } }
     }
 
     private static func seconds(_ duration: Duration) -> Double {

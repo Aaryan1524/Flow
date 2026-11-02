@@ -8,7 +8,7 @@ public struct HistoryEntry: Codable, Sendable, Equatable {
     public var engine: String
     /// What the speech engine heard, before any cleanup.
     public var rawText: String
-    /// What was actually inserted (equal to `rawText` until cleanup exists).
+    /// What was actually inserted (differs from `rawText` when cleanup changed something).
     public var finalText: String
     /// "pasted", "copiedOnly(appChanged)", ...
     public var outcome: String

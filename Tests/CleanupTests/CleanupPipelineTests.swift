@@ -113,6 +113,30 @@ private struct Boom: Error, LocalizedError {
         #expect(elapsed < .seconds(2))
     }
 
+    @Test func aSlowAIIsCancelledAfterTheTimeout() async throws {
+        let cancelled = OSLockedBox<Bool>()
+        let ai = FakeCleaner { text in
+            do {
+                try await Task.sleep(for: .seconds(5))
+                return text
+            } catch {
+                cancelled.set(true)
+                throw error
+            }
+        }
+        _ = await pipeline(ai: ai, timeout: .milliseconds(100)).clean("Meet at three, actually four.", mode: .rulesAndAI)
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(cancelled.value == true)
+    }
+
+    @Test func longTextGetsAProportionallyLongerTimeBudget() {
+        let pipeline = CleanupPipeline(ai: nil, timeout: .seconds(4))
+        #expect(pipeline.budget(for: "short") == .seconds(4))
+        #expect(pipeline.budget(for: String(repeating: "a", count: 1800)) == .seconds(4))
+        #expect(pipeline.budget(for: String(repeating: "a", count: 1801)) == .seconds(8))
+        #expect(pipeline.budget(for: String(repeating: "a", count: 5400)) == .seconds(12))
+    }
+
     @Test func anEmptyAnswerIsNotUsed() async {
         let ai = FakeCleaner { _ in "   " }
         let result = await pipeline(ai: ai).clean("Meet at three, actually four.", mode: .rulesAndAI)
