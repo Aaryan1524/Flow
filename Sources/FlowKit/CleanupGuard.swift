@@ -774,18 +774,32 @@ public struct CleanupGuard: Sendable {
         if written.allCaps && !spoken.allCaps && (written.text.count > 5 || (titleFunctionWords.contains(written.text))) { return false }
         if spoken.capitalized && !spoken.startsSentence && !written.capitalized { return false }
         if spoken.capitalized && spoken.startsSentence && written.startsSentence && !written.capitalized { return false }
-        if !spoken.capitalized && written.capitalized && !written.startsSentence && titleFunctionWords.contains(written.text) { return false }
+        if !spoken.capitalized && written.capitalized && !written.startsSentence && !written.afterComma
+            && titleFunctionWords.contains(written.text)
+        {
+            return false
+        }
         return true
     }
 
-    /// True when the dictation is all upper case, which leaves nothing to compare the output's case with.
+    /// True when the text is all upper case: no lower case letter, and at least two words of two letters or more.
+    /// Such a dictation leaves nothing to compare the output's case with.
     static func isShouting(_ text: String) -> Bool {
-        var letters = 0
-        for scalar in text.unicodeScalars where scalar.properties.isAlphabetic {
-            if scalar.properties.isLowercase { return false }
-            letters += 1
+        var words = 0
+        var run = 0
+        for scalar in text.unicodeScalars {
+            let value = scalar.value
+            let isLetter = (value >= 65 && value <= 90) || (value >= 97 && value <= 122) || (value >= 128 && scalar.properties.isAlphabetic)
+            if isLetter {
+                if (value >= 97 && value <= 122) || (value >= 128 && scalar.properties.isLowercase) { return false }
+                run += 1
+            } else {
+                if run >= 2 { words += 1 }
+                run = 0
+            }
         }
-        return letters >= 3
+        if run >= 2 { words += 1 }
+        return words >= 2
     }
 
     /// An output with no lower case letter at all, from a dictation that has some.
@@ -803,7 +817,7 @@ public struct CleanupGuard: Sendable {
             inside += 1
             if token.capitalized && !token.allCaps && !names.contains(token.text) && !weekdaysAndMonths.contains(token.text) { gained += 1 }
         }
-        return gained >= 3 && gained * 2 > inside
+        return gained >= 3 && gained * 4 >= inside * 3
     }
 
     // MARK: - Identifiers and formatting
@@ -854,8 +868,10 @@ public struct CleanupGuard: Sendable {
         for scalar in text.unicodeScalars {
             let value = scalar.value
             if value < 128 {
-                // Letters, digits, spaces and control characters are not symbols.
-                if (value >= 97 && value <= 122) || (value >= 65 && value <= 90) || (value >= 48 && value <= 57) || value <= 32 || value == 127 {
+                // Letters, digits, spaces and control characters are not symbols; underscores are counted below.
+                if (value >= 97 && value <= 122) || (value >= 65 && value <= 90) || (value >= 48 && value <= 57) || value <= 32
+                    || value == 127 || value == 95
+                {
                     continue
                 }
                 if !ordinaryPunctuation.contains(scalar) { counts[scalar, default: 0] += 1 }
@@ -865,12 +881,31 @@ public struct CleanupGuard: Sendable {
             if properties.isAlphabetic || properties.numericType != nil || properties.isWhitespace || ordinaryPunctuation.contains(scalar) {
                 continue
             }
+            // Accents belong to their letter. Invisible characters (zero width, direction marks) are symbols too.
             switch properties.generalCategory {
-            case .nonspacingMark, .spacingMark, .enclosingMark, .format, .control: continue
+            case .nonspacingMark, .spacingMark, .enclosingMark: continue
             default: counts[scalar, default: 0] += 1
             }
         }
+        let loose = looseUnderscores(in: text)
+        if loose > 0 { counts["_"] = loose }
         return counts
+    }
+
+    /// Underscores that do not sit between two letters or digits. One inside a word only joins words
+    /// (API_BASE_URL); one at the edge of a word is emphasis (_really_).
+    private static func looseUnderscores(in text: String) -> Int {
+        guard text.utf8.contains(95) else { return 0 }
+        let bytes = Array(text.utf8)
+        func isWord(_ byte: UInt8) -> Bool {
+            (byte >= 97 && byte <= 122) || (byte >= 65 && byte <= 90) || (byte >= 48 && byte <= 57) || byte >= 128
+        }
+        var count = 0
+        for (index, byte) in bytes.enumerated() where byte == 95 {
+            let inside = index > 0 && index + 1 < bytes.count && isWord(bytes[index - 1]) && isWord(bytes[index + 1])
+            if !inside { count += 1 }
+        }
+        return count
     }
 
     /// Smileys, and runs of punctuation standing alone (":)", "---", "!!!"): decoration, not words.

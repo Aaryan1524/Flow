@@ -155,6 +155,36 @@ import Testing
         #expect(!trusts("we raised ten million dollars", "We raised $10 billion."))
     }
 
+    @Test func acceptsNumbersWrittenInTheirUsualShape() {
+        #expect(trusts("call me at five five five one two three four", "Call me at 555-1234."))
+        #expect(trusts("the part is five mm wide", "The part is 5 mm wide."))
+        #expect(trusts("the meeting is at 3pm", "The meeting is at 3 p.m."))
+        #expect(trusts("we shipped on march third", "We shipped on March 3rd."))
+        #expect(!trusts("call me at five five five one two three four", "Call me at 555-1243."))
+    }
+
+    @Test func aMillimetreIsNotAFiller() {
+        #expect(trusts("mm hmm okay sure", "Okay, sure."))
+        #expect(!trusts("the part is 5 mm wide", "The part is 5 wide."))
+    }
+
+    @Test func spokenIdentifiersMayBeJoinedWithUnderscores() {
+        #expect(trusts("set the variable api base url to the staging host", "Set the variable API_BASE_URL to the staging host."))
+        #expect(trusts("rename use auth session to use session", "Rename useAuthSession to useSession."))
+        #expect(!trusts("this is really important", "This is _really_ important."))
+    }
+
+    @Test func aColonMayBeFollowedByACapital() {
+        #expect(trusts("note the meeting starts at nine", "Note: The meeting starts at nine."))
+        #expect(trusts("a b c", "A, B, C."))
+        #expect(!trusts("note the meeting starts at nine", "Note The Meeting Starts At Nine."))
+    }
+
+    @Test func invisibleCharactersAreSymbols() {
+        #expect(!trusts("call the dentist", "Call the\u{200B} dentist."))
+        #expect(!trusts("call the dentist", "Call the dentist.\u{202E}"))
+    }
+
     // MARK: - A cue is not a licence
 
     @Test func anOrdinaryCueWordDoesNotExcuseADroppedClause() {

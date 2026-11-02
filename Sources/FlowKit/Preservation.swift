@@ -299,6 +299,8 @@ struct SpokenNumber: Equatable, Sendable {
             // Words that are not one number ("five ten") are a list: any of its numbers will do. A run that reads
             // as a time or a year ("three thirty") is not: 3:30 is not 3:00, and ten thirty is not 10.
             if value == nil && readings.isEmpty { readings.formUnion(parts) }
+            // Digit groups written apart ("555-1234", "5 10 15") are the number run together or any one of them.
+            if pieces.allSatisfy({ if case .digits = $0 { true } else { false } }) { readings.formUnion(parts) }
         }
         if readings.isEmpty { readings = parts }
         return SpokenNumber(display: display, readings: readings, parts: parts)
@@ -367,7 +369,7 @@ struct SpokenNumber: Equatable, Sendable {
         return readings
     }
 
-    /// "one two three" read digit by digit is 123.
+    /// "one two three" read digit by digit is 123, and "555-1234" is the digits of a phone number.
     static func digitSequence(_ pieces: [Piece]) -> String? {
         guard pieces.count >= 2 else { return nil }
         var digits = ""
@@ -375,7 +377,7 @@ struct SpokenNumber: Equatable, Sendable {
             switch piece {
             case .unit(let value): digits += String(value)
             case .oh: digits += "0"
-            case .digits(_, let integer?) where integer < 10: digits += String(integer)
+            case .digits(_, let integer?): digits += String(integer)
             default: return nil
             }
         }
