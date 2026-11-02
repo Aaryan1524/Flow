@@ -733,7 +733,7 @@ public struct CleanupGuard: Sendable {
         var sentence = ""
         for character in cleaned {
             if character == "?" {
-                if let first = lex(sentence).first?.text, questionOpeners.contains(first) { natural += 1 } else { invented += 1 }
+                if opensAQuestion(lex(sentence)) { natural += 1 } else { invented += 1 }
                 sentence = ""
             } else if ".!\n".contains(character) {
                 sentence = ""
@@ -743,6 +743,19 @@ public struct CleanupGuard: Sendable {
         }
         if invented > max(0, questionsSaid - natural) { return true }
         return count(of: "!", in: cleaned) > bangsSaid
+    }
+
+    /// Words that lead into a question without being part of it: "Okay, what time is it?", "Hey Sam, are you free?".
+    private static let questionLeaders: Set<String> = [
+        "so", "and", "but", "well", "okay", "ok", "yeah", "then", "now", "anyway", "right", "hey", "hi", "hello", "please",
+    ]
+
+    /// A sentence opens like a question when its first word, the first after a leading "so" or "okay", or the
+    /// first of any comma-separated clause is a question word or an auxiliary verb.
+    private static func opensAQuestion(_ sentence: [Token]) -> Bool {
+        guard let first = sentence.firstIndex(where: { !$0.isFiller && !questionLeaders.contains($0.text) }) else { return false }
+        if questionOpeners.contains(sentence[first].text) { return true }
+        return sentence.contains { $0.afterComma && questionOpeners.contains($0.text) }
     }
 
     // MARK: - Chat framing

@@ -408,6 +408,14 @@ import Testing
         #expect(trusts("you are coming to the party?", "You are coming to the party?"))
     }
 
+    @Test func aQuestionMayOpenAfterAGreetingOrADiscourseWord() {
+        #expect(trusts("okay what time is it", "Okay, what time is it?"))
+        #expect(trusts("so are you coming tonight", "So, are you coming tonight?"))
+        #expect(trusts("hey sam are you free", "Hey Sam, are you free?"))
+        #expect(!trusts("well we are done", "Well, we are done?"))
+        #expect(!trusts("hey sam we are done", "Hey Sam, we are done?"))
+    }
+
     // MARK: - Long dictations and chunks
 
     @Test func anAppendedAnswerCannotHideInALongDictation() {
