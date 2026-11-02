@@ -146,7 +146,7 @@ import Testing
 
     @Test func reportsTheReasonAndMeasurements() {
         let verdict = guardrail.evaluate(raw: "what is the tallest mountain in Africa", cleaned: "Kilimanjaro.")
-        #expect(verdict.failure == .tooShort)
+        #expect(verdict.failure == .wordChanged)
         #expect(verdict.lengthRatio < 0.3)
         let preface = guardrail.evaluate(raw: "turn the lights off", cleaned: "Sure, turn the lights off.")
         #expect(preface.failure == .chattyFraming)
@@ -219,20 +219,6 @@ import Testing
         #expect(trusts("send it to Maria no wait send it to Marcus", "Send it to Marcus."))
     }
 
-    @Test func sameWordMeansInflectionOnly() {
-        #expect(CleanupGuard.sameWord("session", "sessions"))
-        #expect(CleanupGuard.sameWord("ship", "shipped"))
-        #expect(CleanupGuard.sameWord("ship", "shipping"))
-        #expect(CleanupGuard.sameWord("make", "making"))
-        #expect(CleanupGuard.sameWord("use", "used"))
-        #expect(!CleanupGuard.sameWord("can", "cant"))
-        #expect(!CleanupGuard.sameWord("could", "couldnt"))
-        #expect(!CleanupGuard.sameWord("was", "wasnt"))
-        #expect(!CleanupGuard.sameWord("are", "arent"))
-        #expect(!CleanupGuard.sameWord("not", "note"))
-        #expect(!CleanupGuard.sameWord("do", "does"))
-    }
-
     // MARK: - Speed on long text
 
     /// Letters-only words that cannot be negations, fillers, numbers or inflections of each other.
@@ -250,12 +236,24 @@ import Testing
     @Test func evaluatesFiveThousandWordsWithoutQuadraticCost() {
         let words = Self.pseudoText(words: 5000)
         let raw = words.joined(separator: " ")
-        let cleaned = words.enumerated().filter { $0.offset % 25 != 7 }.map(\.element).joined(separator: " ")
+        // The dictation has a filler every 25 words and a stutter every 40; the cleanup has neither.
+        var spoken: [String] = []
+        for (index, word) in words.enumerated() {
+            if index % 25 == 7 { spoken.append("um") }
+            spoken.append(word)
+            if index % 40 == 11 { spoken.append(word) }
+        }
         let start = ContinuousClock.now
-        let verdict = guardrail.evaluate(raw: raw, cleaned: cleaned)
+        let verdict = guardrail.evaluate(raw: spoken.joined(separator: " "), cleaned: raw)
         let elapsed = start.duration(to: .now)
         #expect(verdict.failure == nil)
         #expect(elapsed < .milliseconds(750))
+
+        // A rejection costs no more: one dropped word, and an answer appended to the end.
+        var dropped = words
+        dropped.remove(at: 2500)
+        #expect(guardrail.evaluate(raw: raw, cleaned: dropped.joined(separator: " ")).failure == .contentDropped)
+        #expect(guardrail.evaluate(raw: raw, cleaned: raw + " Paris").failure == .wordAdded)
     }
 
     // MARK: - Answers made of digits
@@ -306,7 +304,9 @@ import Testing
 
     @Test func aPronounOneIsAWordNotANumber() {
         let raw = "what is the difference between a mutex and a semaphore and when should i use each 1"
-        #expect(trusts(raw, "What is the difference between a mutex and a semaphore, and when should I use each?"))
+        // "1" after "each" is the word "one": it may be spelled either way, but not dropped.
+        #expect(trusts(raw, "What is the difference between a mutex and a semaphore, and when should I use each one?"))
+        #expect(!trusts(raw, "What is the difference between a mutex and a semaphore, and when should I use each?"))
         #expect(trusts("no one knew about the plan", "No one knew about the plan."))
         #expect(!trusts("use each 1", "Use each."))
         #expect(!trusts("we need one chair", "We need chair."))
@@ -426,11 +426,13 @@ import Testing
         #expect(!trusts(raw, raw + ". " + answer + "."))
     }
 
-    @Test func addedWordsAreCappedEvenWhenTheFractionWouldAllowMore() {
+    @Test func noWordMayBeAddedHoweverLongTheDictation() {
         let words = Self.pseudoText(words: 300)
         let raw = words.joined(separator: " ")
         #expect(!trusts(raw, raw + " plus extra words appended"))
-        #expect(trusts(raw, raw + " plus extra words"))
+        #expect(!trusts(raw, raw + " thanks"))
+        #expect(!trusts(raw, "Okay. " + raw))
+        #expect(trusts(raw, raw + "."))
     }
 
     @Test func aCorrectionCueAtTheEndOfAChunkNeedsTheNextChunkForContext() {
@@ -442,12 +444,15 @@ import Testing
         #expect(guardrail.evaluate(raw: second, cleaned: "Send the report to Peter on Monday.", before: first).isTrustworthy)
     }
 
-    @Test func aCueAtTheStartOfAChunkNeedsThePreviousChunkForContext() {
+    @Test func aRetractionCueAtTheStartOfAPartRetractsNothingBeforeIt() {
         let first = "send the report to Maria on Friday"
         let second = "scratch that send the report to Peter on Monday"
         let cleanedSecond = "Send the report to Peter on Monday."
-        #expect(!guardrail.evaluate(raw: second, cleaned: cleanedSecond).isTrustworthy)
+        #expect(guardrail.evaluate(raw: second, cleaned: cleanedSecond).isTrustworthy)
         #expect(guardrail.evaluate(raw: second, cleaned: cleanedSecond, before: first).isTrustworthy)
+        // A cue that only counts next to the words it replaces cannot be dropped with nothing before it.
+        #expect(!trusts("actually send the report to Peter on Monday", cleanedSecond))
+        #expect(!trusts("sorry send the report to Peter on Monday", cleanedSecond))
     }
 
     @Test func contextDoesNotExcuseDroppingTheChunksOwnWords() {
@@ -467,28 +472,19 @@ import Testing
             guardrail.evaluate(raw: "call useAuthSession from the login hook", cleaned: "Call UseAuthSession from the login hook.").failure
                 == .identifierChanged)
         #expect(guardrail.evaluate(raw: "we are done", cleaned: "We are done?").failure == .formatChanged)
-        #expect(guardrail.evaluate(raw: "turn it off", cleaned: "Turn.").failure == .tooShort)
-        #expect(guardrail.evaluate(raw: "turn the lights off", cleaned: "Turn the lights off now.").failure == .addedContent)
+        #expect(guardrail.evaluate(raw: "turn it off", cleaned: "Turn.").failure == .contentDropped)
+        #expect(guardrail.evaluate(raw: "turn the lights off", cleaned: "Turn the lights off now.").failure == .wordAdded)
+        #expect(guardrail.evaluate(raw: "book the room for friday", cleaned: "Book the room for Monday.").failure == .wordChanged)
+        #expect(guardrail.evaluate(raw: "the dog bit the man", cleaned: "The man bit the dog.").failure == .wordChanged)
+        #expect(guardrail.evaluate(raw: "please send the report", cleaned: "PLEASE SEND THE REPORT.").failure == .caseChanged)
     }
 
     // MARK: - Helpers
-
-    @Test func minimumRatioRampsWithInputLength() {
-        #expect(guardrail.minRatio(forInputWords: 6) == 0.3)
-        #expect(guardrail.minRatio(forInputWords: 40) == 0.55)
-        let mid = guardrail.minRatio(forInputWords: 21)
-        #expect(mid > 0.3 && mid < 0.55)
-    }
 
     @Test func joinsSplitWordsOnlyWhenTheOutputHasTheJoinedForm() {
         let joined = CleanupGuard.joinSplitWords(["see", "you", "at", "p", "m"], matching: ["see", "you", "at", "pm"])
         #expect(joined == ["see", "you", "at", "pm"])
         let untouched = CleanupGuard.joinSplitWords(["p", "m"], matching: ["p", "m"])
         #expect(untouched == ["p", "m"])
-    }
-
-    @Test func orderedMatchesCountsSubsequence() {
-        #expect(CleanupGuard.orderedMatches(["a", "c"], ["a", "b", "c"]) == 2)
-        #expect(CleanupGuard.orderedMatches(["c", "a"], ["a", "b", "c"]) == 1)
     }
 }
