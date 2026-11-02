@@ -12,7 +12,7 @@ import OSLog
 
 /// Ties the pieces together: hold Fn, record, transcribe, paste, log.
 ///
-/// Phase 1 inserts the raw speech-to-text output. Cleanup and number conversion come later.
+/// The transcript goes through the cleanup pipeline (rules, then the AI when needed) before it is pasted.
 @MainActor
 @Observable
 final class DictationController {
@@ -52,6 +52,8 @@ final class DictationController {
     @ObservationIgnored private let aiCleaner = AppleCleaner()
     /// Rules only until the AI model has reported that it is available.
     @ObservationIgnored private var pipeline = CleanupPipeline(ai: nil)
+    @ObservationIgnored private var aiReady = false
+    @ObservationIgnored private var pollTicks = 0
     @ObservationIgnored private let log = Logger(subsystem: "com.aaryan.flow", category: "dictation")
 
     /// App that was in front when the key went down. The text goes there, or nowhere.
@@ -124,6 +126,8 @@ final class DictationController {
                 refreshGlobeKeySetting()
                 refreshMicrophones()
                 prewarmRecorder()
+                pollTicks += 1
+                if !aiReady, pollTicks % 15 == 0 { await prepareAICleanup() }  // about every 30 s
                 await pruneHistoryIfDue()
                 try? await Task.sleep(for: .seconds(2))
             }
@@ -131,18 +135,26 @@ final class DictationController {
     }
 
     /// Warms up Apple's on-device model so the first cleanup isn't slow. If it isn't available, rules still work.
+    /// Retried from the poll loop, because the model may still be downloading at launch.
     private func prepareAICleanup() async {
+        guard !aiReady else { return }
         do {
             try await aiCleaner.prepare()
             pipeline = CleanupPipeline(ai: aiCleaner)
+            aiReady = true
         } catch {
             log.info("AI cleanup unavailable: \(error.localizedDescription, privacy: .public)")
         }
     }
 
+    /// Not set yet means the default. A stored value this build doesn't know falls back to the safe rules-only mode.
     private var cleanupMode: CleanupMode {
-        CleanupMode(rawValue: UserDefaults.standard.string(forKey: "cleanupMode") ?? "") ?? .rulesAndAI
+        guard let stored = UserDefaults.standard.string(forKey: "cleanupMode") else { return Self.defaultCleanupMode }
+        return CleanupMode(rawValue: stored) ?? .rules
     }
+
+    /// Rules only until the AI safety check has been hardened and verified; then this becomes `.rulesAndAI`.
+    static let defaultCleanupMode = CleanupMode.rules
 
     private func loadModel() async {
         status = .loadingModel
@@ -294,8 +306,9 @@ final class DictationController {
                 return
             }
 
+            let mode = cleanupMode
             let cleanupStart = ContinuousClock.now
-            let cleaned = await pipeline.clean(raw, mode: cleanupMode)
+            let cleaned = await pipeline.clean(raw, mode: mode)
             let cleanupMs = cleanupStart.duration(to: .now).milliseconds
             let text = cleaned.text.trimmingCharacters(in: .whitespacesAndNewlines)
             // Cleanup can legitimately leave nothing, e.g. when the whole dictation was "um".
@@ -323,11 +336,11 @@ final class DictationController {
                 lastTranscript = text
                 lastRawTranscript = raw
                 notice = Self.describe(reason)
-                await record(cleaned, text, result, timing)
+                await record(cleaned, text, result, timing, mode)
             default:
                 lastTranscript = text
                 lastRawTranscript = raw
-                await record(cleaned, text, result, timing)
+                await record(cleaned, text, result, timing, mode)
             }
             status = .ready
         } catch {
@@ -345,12 +358,14 @@ final class DictationController {
         var releaseToTextMs: Double
     }
 
-    private func record(_ cleaned: CleanupResult, _ finalText: String, _ result: InsertionResult, _ timing: Timing) async {
+    private func record(
+        _ cleaned: CleanupResult, _ finalText: String, _ result: InsertionResult, _ timing: Timing, _ mode: CleanupMode
+    ) async {
         guard UserDefaults.standard.object(forKey: "saveHistory") as? Bool ?? true else { return }
         let entry = HistoryEntry(
             app: targetApp, engine: transcriber.name, rawText: cleaned.raw, finalText: finalText, outcome: result.logValue,
             audioSeconds: timing.audioSeconds, firstAudioMs: timing.firstAudioMs, transcribeMs: timing.transcribeMs,
-            insertMs: timing.insertMs, releaseToTextMs: timing.releaseToTextMs, cleanupMode: cleanupMode.rawValue,
+            insertMs: timing.insertMs, releaseToTextMs: timing.releaseToTextMs, cleanupMode: mode.rawValue,
             cleanupMs: timing.cleanupMs, usedAI: cleaned.usedAI, aiSkippedBecause: cleaned.aiSkippedBecause)
         try? await history.append(entry)
     }

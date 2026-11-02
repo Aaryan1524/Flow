@@ -5,7 +5,7 @@ struct MenuContent: View {
     let controller: DictationController
     @AppStorage("saveHistory") private var saveHistory = true
     @AppStorage("inputDeviceUID") private var inputDeviceUID = ""
-    @AppStorage("cleanupMode") private var cleanupMode = "rulesAndAI"
+    @AppStorage("cleanupMode") private var cleanupMode = DictationController.defaultCleanupMode.rawValue
 
     var body: some View {
         Text(controller.statusText)
@@ -41,7 +41,7 @@ struct MenuContent: View {
         Picker("Cleanup", selection: $cleanupMode) {
             Text("Off (raw text)").tag("off")
             Text("Rules only (instant)").tag("rules")
-            Text("Rules + AI (recommended)").tag("rulesAndAI")
+            Text("Rules + AI (experimental)").tag("rulesAndAI")
         }
 
         Button("Paste last transcript") { controller.pasteLastTranscript() }
