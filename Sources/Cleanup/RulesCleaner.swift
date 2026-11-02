@@ -46,7 +46,9 @@ public struct RulesCleaner: TextCleaner {
         cleaned(raw)
     }
 
-    public func cleaned(_ raw: String) -> String {
+    public func cleaned(_ original: String) -> String {
+        // "Scratch all of that" and "Scratch that." are resolved first, so the other rules only see what is kept.
+        let raw = DiscardCommands.apply(original)
         var tokens = Self.tokenize(raw)
         guard tokens.contains(where: \.isWord) else { return raw.trimmingCharacters(in: .whitespacesAndNewlines) }
         let wasUncased = tokens.first(where: \.isWord)?.core.first?.isLowercase == true

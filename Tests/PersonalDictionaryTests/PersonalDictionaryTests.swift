@@ -133,14 +133,84 @@ import Testing
         #expect(combined.count == DictionaryFiles.starter().count + 1)
     }
 
-    @Test func theBuiltInListHasNoDuplicatesAndBoostsOnlySensibleTerms() {
-        let starter = DictionaryFiles.starter()
-        let keys = starter.entries.map { $0.term.lowercased() }
-        #expect(Set(keys).count == keys.count)
-        for term in starter.boostTerms(limit: 10_000) {
+    @Test func theBuiltInListBoostsOnlySensibleTerms() {
+        for term in DictionaryFiles.starter().boostTerms(limit: 10_000) {
             #expect(term.count >= PersonalDictionary.minimumBoostLength)
             #expect(!PersonalDictionary.everydayWords.contains(term.lowercased()))
         }
+    }
+
+    // MARK: - Quality of the built-in list
+
+    /// The entry lines of the starter file as written. `parse` merges repeats, so duplicates can only be seen here.
+    private func starterLines() throws -> [String] {
+        let file = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Sources/PersonalDictionary/Resources/starter-dictionary.txt")
+        let text = try String(contentsOf: file, encoding: .utf8)
+        return text.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline).map(String.init)
+            .filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty && !$0.hasPrefix("#") }
+    }
+
+    @Test func theBuiltInListHasNoDuplicates() throws {
+        let lines = try starterLines().map { $0.lowercased() }
+        let repeated = Dictionary(grouping: lines, by: { $0 }).filter { $0.value.count > 1 }.keys.sorted()
+        #expect(repeated.isEmpty, "listed twice: \(repeated)")
+    }
+
+    @Test func builtInEntriesHaveNoStrayWhitespaceAndNothingThatBreaksTheParser() throws {
+        for line in try starterLines() {
+            #expect(line == line.trimmingCharacters(in: .whitespacesAndNewlines), "stray whitespace: \"\(line)\"")
+            // A colon starts the aliases, so a term can't contain one. The list is plain terms, with no aliases.
+            #expect(!line.contains(":"), "colon in \"\(line)\"")
+            #expect(!line.contains("\t"), "tab in \"\(line)\"")
+        }
+        // What was written is what was read: no line was split, merged or dropped.
+        #expect(DictionaryFiles.starter().entries.map(\.term) == (try starterLines()))
+        #expect(DictionaryFiles.starter().entries.allSatisfy { $0.aliases.isEmpty })
+    }
+
+    @Test func everyBuiltInEntryIsLongEnoughForTheSpeechEngineToUse() {
+        for entry in DictionaryFiles.starter().entries {
+            #expect(entry.term.count >= PersonalDictionary.minimumBoostLength, "too short to boost: \"\(entry.term)\"")
+        }
+    }
+
+    @Test func noBuiltInEntryIsOneThatIsNeverBoosted() {
+        // An ordinary word or a bare number in the list would take up space and do nothing.
+        let starter = DictionaryFiles.starter()
+        let ignored = starter.entries.map(\.term).filter { !starter.boostTerms(limit: .max).contains($0) }
+        #expect(ignored.isEmpty, "never boosted: \(ignored)")
+    }
+
+    @Test func theBuiltInListIsBigEnoughToBeUseful() {
+        let starter = DictionaryFiles.starter()
+        #expect(starter.count >= 400)
+        #expect(starter.boostTerms(limit: .max).count >= 400)
+    }
+
+    @Test func theDefaultBoostedListIsTheSizeThatWasMeasured() {
+        // 250 terms made no wrong swaps in flow-eval and more did: measure again before raising it.
+        #expect(DictionaryFiles.starter().boostTerms().count == 250)
+    }
+
+    @Test func theFlagshipTermsAreWithinTheDefaultBoostedList() {
+        // The speech engine only hears the top of the list, so the terms it gets wrong most often must be there.
+        let boosted = Set(DictionaryFiles.starter().boostTerms())
+        for term in ["Vercel", "Supabase", "useAuthSession", "Wispr Flow", "kubectl", "PostgreSQL", "TypeScript", "Kubernetes", "GitHub"] {
+            #expect(boosted.contains(term), "\(term) is not in the default boosted list")
+        }
+    }
+
+    @Test func theBuiltInListFixesCommonCapitalisation() {
+        let replacements = DictionaryFiles.starter().replacements
+        #expect(replacements["github"] == "GitHub")
+        #expect(replacements["openai"] == "OpenAI")
+        #expect(replacements["pytorch"] == "PyTorch")
+        #expect(replacements["postgresql"] == "PostgreSQL")
+        #expect(replacements["macos"] == "macOS")
+        // Already spelled in lowercase, so nothing to correct.
+        #expect(replacements["kubectl"] == nil)
     }
 }
 
