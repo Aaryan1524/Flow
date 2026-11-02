@@ -27,11 +27,14 @@ public enum DeleteOnlyCheck {
 
     /// Longer text is not checked, and so not trusted.
     public static let maxWords = 2000
+    public static let maxBytes = 60_000
     /// The most words a speaker can take back in one go (not counting the cue itself).
     public static let maxRetractedWords = 12
 
     /// `nil` means the output is trusted.
     public static func evaluate(input: String, output: String) -> Failure? {
+        // Refuse before doing any work on text that is too big to be a dictation.
+        guard input.utf8.count <= maxBytes, output.utf8.count <= maxBytes else { return .tooLong }
         let source = tokens(input)
         let result = tokens(output)
         guard source.count <= maxWords else { return .tooLong }
@@ -53,10 +56,12 @@ public enum DeleteOnlyCheck {
             let folded = { (list: [Token]) in list.map { $0.text.lowercased() } }
             return isSubsequence(folded(result), of: folded(source)) ? .caseChanged : .notOnlyDeletions
         }
+        var sawPlausibleAlignment = false
         for alignment in [left, right].compactMap({ $0 }) where deletionsAreExplained(source, kept: Set(alignment)) {
-            return nil
+            sawPlausibleAlignment = true
+            if marksOnlyDisappear(source, result, alignment) { return nil }
         }
-        return .deletionNotExplained
+        return sawPlausibleAlignment ? .symbolOrLineBreakAdded : .deletionNotExplained
     }
 
     public static func isTrusted(input: String, output: String) -> Bool { evaluate(input: input, output: output) == nil }
@@ -73,32 +78,68 @@ public enum DeleteOnlyCheck {
         let endsClause: Bool
         /// First word of a sentence or after a line break.
         var startsSentence: Bool
+        /// The punctuation written directly before and after the word, e.g. "(" or ".".
+        var leadingMarks: Set<Unicode.Scalar> = []
+        var trailingMarkSet: Set<Unicode.Scalar> = []
+        /// How many line breaks came between the previous word and this one.
+        var newlinesBefore = 0
     }
+
+
+    private static let abbreviations: Set<String> = ["mr", "mrs", "ms", "dr", "prof", "vs", "etc", "jr", "sr", "inc", "ltd", "fig", "figs", "approx", "cf", "st"]
+    private static func abbreviationLike(_ core: Substring) -> Bool {
+        let lower = core.lowercased()
+        if abbreviations.contains(lower) { return true }
+        return core.contains(".") && core.allSatisfy { $0.isLetter || $0 == "." }
+    }
+
+    private static let leadingMarks: Set<Unicode.Scalar> = ["\"", "\u{201C}", "\u{2018}", "'", "(", "[", "{"]
+    private static let sentenceMarks: Set<Unicode.Scalar> = [".", "!", "?", "\u{2026}"]
+    private static let clauseMarks: Set<Unicode.Scalar> = [",", ";", ":"]
+    private static let trailingMarks: Set<Unicode.Scalar> = [
+        ".", ",", ";", ":", "!", "?", "\u{2026}", "\"", "\u{201D}", "\u{2019}", "'", ")", "]", "}",
+    ]
 
     static func tokens(_ text: String) -> [Token] {
         var result: [Token] = []
         var pendingBreak = true
         var piece = ""
+        var newlines = 0
         func flush() {
             guard !piece.isEmpty else { return }
-            var core = Substring(piece)
-            while let first = core.first, "\"“‘'([{".contains(first), core.count > 1 { core = core.dropFirst() }
+            // Work on unicode scalars in a flat array: stepping back through a long run of identical punctuation
+            // one `Character` at a time was quadratic.
+            let scalars = Array(piece.unicodeScalars)
+            var low = 0
+            var high = scalars.count
+            while high - low > 1, leadingMarks.contains(scalars[low]) { low += 1 }
             var sentence = false
             var clause = false
-            while let last = core.last, ".,;:!?…\"”’')]}".contains(last), core.count > 1 {
-                if ".!?…".contains(last) { sentence = true }
-                if ",;:".contains(last) { clause = true }
-                core = core.dropLast()
+            while high - low > 1, trailingMarks.contains(scalars[high - 1]) {
+                if sentenceMarks.contains(scalars[high - 1]) { sentence = true }
+                if clauseMarks.contains(scalars[high - 1]) { clause = true }
+                high -= 1
             }
+            var view = String.UnicodeScalarView()
+            view.append(contentsOf: scalars[low..<high])
+            let core = String(view)
+            if sentence, abbreviationLike(Substring(core)) { sentence = false }
             let startsSentence = pendingBreak
-            result.append(Token(text: String(core), lower: core.lowercased(), endsSentence: sentence, endsClause: clause, startsSentence: startsSentence))
+            result.append(
+                Token(
+                    text: core, lower: core.lowercased(), endsSentence: sentence, endsClause: clause, startsSentence: startsSentence,
+                    leadingMarks: Set(scalars[..<low]), trailingMarkSet: Set(scalars[high...]), newlinesBefore: newlines))
             pendingBreak = sentence
+            newlines = 0
             piece = ""
         }
         for character in text {
             if character.isWhitespace {
                 flush()
-                if character.isNewline { pendingBreak = true }
+                if character.isNewline {
+                    pendingBreak = true
+                    newlines += 1
+                }
             } else {
                 piece.append(character)
             }
@@ -109,8 +150,8 @@ public enum DeleteOnlyCheck {
 
     private static func symbolCounts(_ text: String) -> [Character: Int] {
         var counts: [Character: Int] = [:]
-        for character in text where !(character.isLetter || character.isNumber || character.isWhitespace) {
-            counts[character, default: 0] += 1
+        for scalar in text.unicodeScalars where !(scalar.properties.isAlphabetic || scalar.properties.numericType != nil || scalar.properties.isWhitespace) {
+            counts[Character(scalar), default: 0] += 1
         }
         return counts
     }
@@ -120,7 +161,7 @@ public enum DeleteOnlyCheck {
     /// Words match if they are identical, or differ only in the case of the first letter of a sentence.
     private static func matches(_ a: Token, _ b: Token) -> Bool {
         if a.text == b.text { return true }
-        guard a.startsSentence || b.startsSentence else { return false }
+        guard b.startsSentence else { return false }
         return a.lower == b.lower && a.text.dropFirst() == b.text.dropFirst()
     }
 
@@ -144,6 +185,19 @@ public enum DeleteOnlyCheck {
             while next < big.count, big[next] != word { next += 1 }
             guard next < big.count else { return false }
             next += 1
+        }
+        return true
+    }
+
+    /// Every kept word may lose punctuation or a line break, but not gain or change one. Otherwise a mark could be
+    /// moved to another word ("ready? Or not." becomes "ready. Or not?") while the words stay in order.
+    private static func marksOnlyDisappear(_ source: [Token], _ result: [Token], _ alignment: [Int]) -> Bool {
+        for (outIndex, inIndex) in alignment.enumerated() {
+            let before = source[inIndex]
+            let after = result[outIndex]
+            guard after.leadingMarks.isSubset(of: before.leadingMarks), after.trailingMarkSet.isSubset(of: before.trailingMarkSet),
+                after.newlinesBefore <= before.newlinesBefore
+            else { return false }
         }
         return true
     }
@@ -221,6 +275,15 @@ public enum DeleteOnlyCheck {
                 guard draft.count <= maxRetractedWords else { continue }
                 // The draft is one sentence. Only its last word may end it, and only for a cue sentence of its own.
                 guard draft.dropLast().allSatisfy({ !$0.endsSentence }) else { continue }
+                // A retraction swaps one clause for another; it does not span a comma-separated list.
+                guard draft.dropLast().allSatisfy({ !$0.endsClause }) else { continue }
+                // A kept negator in front of the draft would end up governing the replacement ("Never [send it to Dana,
+                // I mean,] send it to Priya"), which says something the speaker did not.
+                var sentenceBegin = run.lowerBound
+                while sentenceBegin > 0, !source[sentenceBegin].startsSentence, !source[sentenceBegin - 1].endsSentence { sentenceBegin -= 1 }
+                if source[sentenceBegin..<run.lowerBound].contains(where: { isNegator($0.lower) }) { continue }
+                // A negator or a number is meaning. If the draft had one, the replacement must say one too.
+                if !carriesMeaningAcross(source, draft: draft, afterRun: run.upperBound) { continue }
                 let draftIsASentence = draft.last?.endsSentence == true
                 let asSentence = source[start].startsSentence && sentenceCues.contains(cue)
                 guard !draftIsASentence || asSentence else { continue }
@@ -237,13 +300,15 @@ public enum DeleteOnlyCheck {
                     // stop ("Scratch that, ..."), so "Make that sauce" and "Never mind the cost" stay.
                     // A bare "No," at the start is a real answer and "Sorry, ..." is an apology, not a retraction.
                     guard !isBareNo, !isSoft, cueEndsClause, cueStartsClause else { continue }
+                    // PATCH B: a bare cue may go only where nothing before it is left to be retracted.
+                    guard source[..<run.lowerBound].allSatisfy({ fillers.contains($0.lower) }) else { continue }
                     return true
                 }
                 // Something must remain after the cue to take the draft's place.
                 guard run.upperBound < source.count else { continue }
                 if draftIsASentence {
-                    // "Add milk to the list. Scratch that. Add oat milk.": the cue must close its own sentence.
-                    guard cueEndsClause else { continue }
+                    // PATCH A: the retracted sentence must go whole (its first word starts the sentence).
+                    guard cueEndsClause, draft.first?.startsSentence == true else { continue }
                     return true
                 }
                 // Within a sentence the cue cannot be the end of it.
@@ -255,19 +320,52 @@ public enum DeleteOnlyCheck {
                     // "Tuesday, actually Wednesday": after a comma, one word swapped for another of its kind,
                     // or the draft restated ("room 204, correction, room 240").
                     guard source[start - 1].endsClause, start > run.lowerBound else { continue }
-                    if (draft.count == 1 && sameKind(draft[draft.startIndex], replacement)) || restarts { return true }
+                    if (draft.count == 1 && sameKind(draft[draft.startIndex], replacement) && (replacement.endsClause || replacement.endsSentence)) || restarts { return true }
                     continue
                 }
                 // "no" is an ordinary word ("no tumor"), so as a cue it must be fenced by commas on both sides.
-                let fenced = isBareNo ? (cueStartsClause && lastCueWord.endsClause) : (cueStartsClause || cueEndsClause)
-                if fenced && (draft.count <= 2 || restarts) { return true }
+                // PATCH F: these cues are ordinary phrases ("will make that, ...", "said never mind, ..."), so a draft
+                // may only go when commas sit on both sides of the cue; "I mean" / "or rather" keep one side.
+                let ordinaryPhrase: [[String]] = [["no", "wait"], ["wait", "no"], ["make", "that"], ["scratch", "that"], ["strike", "that"], ["never", "mind"]]
+                let needsBoth = ordinaryPhrase.contains(cue)
+                // PATCH G: a cue that cancels a whole clause must have the draft start at a clause boundary.
+                let singleSwap = draft.count == 1 && sameKind(draft[draft.startIndex], replacement)
+                if sentenceCues.contains(cue), !singleSwap {
+                    let d0 = draft.startIndex
+                    guard d0 == 0 || source[d0].startsSentence || source[d0 - 1].endsClause || source[d0 - 1].endsSentence else { continue }
+                }
+                let fenced = isBareNo ? (cueStartsClause && lastCueWord.endsClause) : (needsBoth ? (cueStartsClause && cueEndsClause) : (cueStartsClause || cueEndsClause))
+                let echoes = echoesAfterSwap(source, draft: draft, afterRun: run.upperBound)
+                if fenced && (draft.count <= 2 || restarts || echoes) { return true }
                 // Unfenced "Maria no wait send it to Marcus" still counts when the words after the cue restate the draft,
                 // and "Friday I mean Monday" when one name or number is swapped for another of its kind.
-                if !isBareNo, draft.count >= 2, restarts { return true }
-                if !isBareNo, draft.count == 1, sameKind(draft[draft.startIndex], replacement) { return true }
+                if !isBareNo, draft.count >= 2, restarts || echoes, !needsBoth || cue == ["no", "wait"] { return true }
+                if !isBareNo, !needsBoth || cue == ["no", "wait"], draft.count == 1, sameKind(draft[draft.startIndex], replacement) { return true }
             }
         }
         return false
+    }
+
+    private static func isNumberLike(_ token: Token) -> Bool {
+        token.lower.contains(where: \.isNumber) || numberWords.contains(token.lower)
+    }
+
+    /// If the retracted draft contained a negator or a number, the words that replace it (up to the end of that
+    /// sentence) must contain one as well. Otherwise "I do not like the red one, no wait, the blue one" would lose its "not".
+    private static func carriesMeaningAcross(_ source: [Token], draft: ArraySlice<Token>, afterRun: Int) -> Bool {
+        let draftHasNegator = draft.contains { isNegator($0.lower) }
+        let draftHasNumber = draft.contains { isNumberLike($0) }
+        guard draftHasNegator || draftHasNumber else { return true }
+        var tailHasNegator = false
+        var tailHasNumber = false
+        var index = afterRun
+        while index < source.count {
+            tailHasNegator = tailHasNegator || isNegator(source[index].lower)
+            tailHasNumber = tailHasNumber || isNumberLike(source[index])
+            if source[index].endsSentence { break }
+            index += 1
+        }
+        return (!draftHasNegator || tailHasNegator) && (!draftHasNumber || tailHasNumber)
     }
 
     /// Plain words that may be said again when a speaker restarts a phrase, so deleting the second copy is harmless.
@@ -276,8 +374,31 @@ public enum DeleteOnlyCheck {
         "he", "she", "they", "we", "i", "you", "us", "me", "my", "is", "are", "was", "were", "be", "and", "or", "but", "so",
     ]
 
+
+    /// PATCH R: "two cups of flour, no wait, three cups of flour": the replacement is the same kind as the draft's first word
+    /// (a number phrase for a number phrase, a name for a name) and what follows it repeats the rest of the draft.
+    private static func echoesAfterSwap(_ source: [Token], draft: ArraySlice<Token>, afterRun: Int) -> Bool {
+        guard afterRun < source.count, let first = draft.first else { return false }
+        let replacement = source[afterRun]
+        guard sameKind(first, replacement) else { return false }
+        func isNum(_ t: Token) -> Bool { t.lower.contains(where: \.isNumber) || numberWords.contains(t.lower) }
+        var rest = Array(draft)
+        var next = afterRun
+        if isNum(first) {
+            while let f = rest.first, isNum(f) { rest.removeFirst() }
+            while next < source.count, isNum(source[next]) { next += 1 }
+        } else {
+            rest.removeFirst()
+            next += 1
+        }
+        guard !rest.isEmpty else { return false }
+        return rest.indices.allSatisfy { next + $0 < source.count && source[next + $0].lower == rest[$0].lower }
+    }
+
     private static func isNegator(_ word: String) -> Bool {
-        ["not", "no", "never", "cannot", "nobody", "nothing", "none", "neither", "nor", "without"].contains(word) || word.hasSuffix("n't")
+        let straight = word.replacingOccurrences(of: "\u{2019}", with: "'")
+        return ["not", "no", "never", "cannot", "nobody", "nothing", "none", "neither", "nor", "without", "nowhere", "hardly", "barely", "rarely", "scarcely"]
+            .contains(straight) || straight.hasSuffix("n't")
     }
 
     /// What follows a cue inside the deleted run: fillers, or a few words already said earlier in the sentence or
@@ -289,7 +410,7 @@ public enum DeleteOnlyCheck {
         let earlier = Set(source[sentenceStart..<cueStart].map(\.lower))
         return source[tail].allSatisfy { token in
             if fillers.contains(token.lower) { return true }
-            guard !isNegator(token.lower), !token.lower.contains(where: \.isNumber) else { return false }
+            guard !isNegator(token.lower), !token.lower.contains(where: \.isNumber), !numberWords.contains(token.lower) else { return false }
             return earlier.contains(token.lower) || restatementWords.contains(token.lower)
         }
     }

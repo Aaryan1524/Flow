@@ -9,6 +9,8 @@ import Hotkey
 import Insertion
 import Observation
 import OSLog
+import PersonalDictionary
+import ServiceManagement
 
 /// Ties the pieces together: hold Fn, record, transcribe, paste, log.
 ///
@@ -43,10 +45,18 @@ final class DictationController {
     /// Microphones to choose from, and the one that will actually be used.
     private(set) var microphones: [AudioInputDevice] = []
     private(set) var activeMicrophoneName = "system default"
+    /// For the menu, e.g. "412 terms".
+    private(set) var dictionarySummary = ""
+    private(set) var launchAtLoginEnabled = false
 
     @ObservationIgnored private let monitor = FnKeyMonitor()
     @ObservationIgnored private let recorder = MicrophoneRecorder()
-    @ObservationIgnored private let transcriber = FluidAudioTranscriber(model: .v2)
+    @ObservationIgnored private var transcriber = FluidAudioTranscriber(model: .v2)
+    /// Your words: built-in terms plus the file you edit. Read again whenever that file changes.
+    @ObservationIgnored private var dictionary = PersonalDictionary()
+    @ObservationIgnored private var dictionaryStamp: Date?
+    /// The dictionary changed but the speech engine hasn't been rebuilt for it yet.
+    @ObservationIgnored private var engineIsStale = false
     @ObservationIgnored private let paster = ClipboardPaster()
     @ObservationIgnored private let history = HistoryLog()
     @ObservationIgnored private let aiCleaner = AppleCleaner()
@@ -100,6 +110,12 @@ final class DictationController {
     func start() {
         activity = ProcessInfo.processInfo.beginActivity(options: .userInitiated, reason: "Listening for the dictation key")
         monitor.onEvent = { [weak self] event in self?.handle(event) }
+        monitor.handsFreeEnabled = handsFreeSetting
+        launchAtLoginEnabled = SMAppService.mainApp.status == .enabled
+        dictionary = DictionaryFiles.combined()
+        dictionaryStamp = DictionaryFiles.modificationDate()
+        dictionarySummary = Self.summary(of: dictionary)
+        pipeline = makePipeline(ai: nil)
         refreshPermissions()
         refreshMicrophones()
         observeSystemEvents()
@@ -124,8 +140,11 @@ final class DictationController {
                 if !monitor.isRunning { monitor.start() }
                 if listening != monitor.isRunning { listening = monitor.isRunning }
                 refreshGlobeKeySetting()
+                monitor.handsFreeEnabled = handsFreeSetting
                 refreshMicrophones()
                 prewarmRecorder()
+                await reloadDictionaryIfChanged()
+                await refreshEngineIfStale()
                 pollTicks += 1
                 if !aiReady, pollTicks % 15 == 0 { await prepareAICleanup() }  // about every 30 s
                 await pruneHistoryIfDue()
@@ -140,7 +159,7 @@ final class DictationController {
         guard !aiReady else { return }
         do {
             try await aiCleaner.prepare()
-            pipeline = CleanupPipeline(ai: aiCleaner)
+            pipeline = makePipeline(ai: aiCleaner)
             aiReady = true
         } catch {
             log.info("AI cleanup unavailable: \(error.localizedDescription, privacy: .public)")
@@ -158,19 +177,98 @@ final class DictationController {
     /// Rules only until the AI step's safety check has had its final review; then this becomes `.rulesAndAI`.
     static let defaultCleanupMode = CleanupMode.rules
 
-    /// Whether "Rules + AI" is offered and honoured. Off until the delete-only safety check has been attacked and passed.
-    static let aiCleanupAvailable = false
+    /// Whether "Rules + AI" is offered and honoured. It stays opt-in: the default is still rules only. The delete-only
+    /// safety check has been attacked three times; its remaining gaps were all harmless in testing, and every
+    /// dictation can be undone with "Paste raw version".
+    static let aiCleanupAvailable = true
 
     private func loadModel() async {
         status = .loadingModel
         do {
-            try await transcriber.prepare()
+            transcriber = try await preparedTranscriber(for: dictionary)
             modelLoaded = true
             status = .ready
         } catch {
             log.error("model load failed: \(error.localizedDescription, privacy: .public)")
             status = .failed("could not load the speech model")
         }
+    }
+
+    // MARK: - Dictionary
+
+    /// How close in spelling a dictionary term must be to the word it replaces, from 0 to 1. Lower values fix more
+    /// mis-hearings but also swap names into the wrong words; 0.8 made no wrong swaps in testing.
+    static let dictionarySimilarity: Float = 0.8
+
+    /// Speech engine listening for `dictionary`'s terms. If the extra vocabulary model can't be loaded (offline on
+    /// the first run, say), dictation still works with the plain engine.
+    private func preparedTranscriber(for dictionary: PersonalDictionary) async throws -> FluidAudioTranscriber {
+        let terms = dictionary.boostTerms()
+        if !terms.isEmpty {
+            let boosted = FluidAudioTranscriber(model: .v2, vocabulary: terms, minSimilarity: Self.dictionarySimilarity)
+            do {
+                try await boosted.prepare()
+                return boosted
+            } catch {
+                log.error("dictionary boosting unavailable: \(error.localizedDescription, privacy: .public)")
+            }
+        }
+        let plain = FluidAudioTranscriber(model: .v2)
+        try await plain.prepare()
+        return plain
+    }
+
+    private func makePipeline(ai: TextCleaner?) -> CleanupPipeline {
+        CleanupPipeline(rules: RulesCleaner(dictionary: dictionary.replacements), ai: ai)
+    }
+
+    private static func summary(of dictionary: PersonalDictionary) -> String {
+        "\(dictionary.count) terms, \(dictionary.boostTerms().count) listened for"
+    }
+
+    /// Picks up edits to your dictionary file within a couple of seconds, with no restart.
+    private func reloadDictionaryIfChanged() async {
+        let stamp = DictionaryFiles.modificationDate()
+        guard stamp != dictionaryStamp else { return }
+        dictionaryStamp = stamp
+        let updated = DictionaryFiles.combined()
+        guard updated != dictionary else { return }
+        dictionary = updated
+        dictionarySummary = Self.summary(of: updated)
+        pipeline = makePipeline(ai: aiReady ? aiCleaner : nil)
+        engineIsStale = true
+    }
+
+    /// Builds a speech engine for the current dictionary and swaps it in, but only while idle so a dictation in
+    /// progress is never interrupted. Retried on the next tick if it couldn't run.
+    private func refreshEngineIfStale() async {
+        guard engineIsStale, modelLoaded, status == .ready else { return }
+        engineIsStale = false
+        do { transcriber = try await preparedTranscriber(for: dictionary) } catch {
+            log.error("could not rebuild the speech engine: \(error.localizedDescription, privacy: .public)")
+            engineIsStale = true
+        }
+    }
+
+    // MARK: - Settings
+
+    /// Double-tap Fn to talk hands-free. On unless switched off.
+    private var handsFreeSetting: Bool { UserDefaults.standard.object(forKey: "handsFree") as? Bool ?? true }
+
+    func setLaunchAtLogin(_ enabled: Bool) {
+        do {
+            if enabled { try SMAppService.mainApp.register() } else { try SMAppService.mainApp.unregister() }
+        } catch {
+            log.error("launch at login failed: \(error.localizedDescription, privacy: .public)")
+            notice = "Could not change launch at login. Move Flow to the Applications folder and try again."
+        }
+        launchAtLoginEnabled = SMAppService.mainApp.status == .enabled
+    }
+
+    /// Opens your dictionary in the default text editor, creating it with instructions the first time.
+    func editDictionary() {
+        guard let url = try? DictionaryFiles.ensureUserFileExists() else { return }
+        NSWorkspace.shared.open(url)
     }
 
     /// A key held down across sleep or a screen lock may never report its release, so drop any recording then.
@@ -270,15 +368,16 @@ final class DictationController {
                 self?.abandonRecording(reason: "recording stopped after 5 minutes")
             }
         case .cancelled:
-            abandonRecording(reason: nil)
+            // An ordinary cancelled tap must not reset the key tracker: a double-tap needs to remember the first tap.
+            abandonRecording(reason: nil, resetKeyTracking: false)
         case .finished:
             Task { await finishRecording() }
         }
     }
 
     /// Throws the current recording away. Used for taps, Esc, sleep, and the length limit. Nothing is pasted.
-    private func abandonRecording(reason: String?) {
-        monitor.reset()
+    private func abandonRecording(reason: String?, resetKeyTracking: Bool = true) {
+        if resetKeyTracking { monitor.reset() }
         guard status == .recording else { return }
         maxRecordingTask?.cancel()
         recorder.discard()

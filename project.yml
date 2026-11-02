@@ -30,6 +30,8 @@ targets:
         product: History
       - package: Flow
         product: Cleanup
+      - package: Flow
+        product: PersonalDictionary
     info:
       path: App/Info.plist
       properties:

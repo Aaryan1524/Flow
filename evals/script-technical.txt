@@ -1,0 +1,39 @@
+We deployed the frontend on Vercel and wired it to Supabase for auth and storage.
+Can you open the pull request on GitHub and tag the Kubernetes platform team?
+Run kubectl get pods in the production namespace and check for CrashLoopBackOff.
+The customer wants a RAG pipeline over their Snowflake warehouse using pgvector.
+I switched the embedding model from OpenAI to a local one served through Ollama.
+Claude Code refactored the TypeScript service and added Pydantic validation.
+We're evaluating Llama, Mistral, Qwen and Gemma for the on-prem deployment.
+The Terraform plan shows a drift on the IAM role for the SageMaker endpoint.
+Set up SAML single sign-on with Okta and provision users through SCIM.
+Their Databricks job writes Parquet files to S3, then dbt builds the marts in BigQuery.
+Use LoRA to fine-tune on the support tickets, then log the run in Weights and Biases.
+The Airflow DAG failed because the Kafka consumer lagged behind by two hours.
+Add an MCP server so the agent can call the Salesforce API with OAuth.
+We should enable OpenTelemetry tracing and ship the metrics to Datadog and Grafana.
+Pydantic says the payload is invalid because customerId should be a UUID.
+The FastAPI endpoint streams tokens over WebSocket with server-sent events as a fallback.
+Palantir Foundry's Ontology maps the ServiceNow tickets to assets and work orders.
+I'm running pytest with coverage in CI on GitHub Actions before every merge.
+Configure Cloudflare to cache the static assets and proxy the Next.js app.
+The latency regression came from the vLLM batch size, not from PyTorch or CUDA.
+Our SOC 2 audit needs evidence of access reviews, and HIPAA applies to the clinical data.
+Open the Xcode project, enable the Neural Engine path in Core ML, and test on device.
+Index the documents in Pinecone, then rerank the top twenty with a cross-encoder.
+The idempotency key prevents a retry from creating a duplicate invoice in Stripe.
+Bump the Docker image, push it to ECR, and let ArgoCD roll it out with Helm.
+Their Postgres has a slow query; add a composite index and run EXPLAIN ANALYZE.
+Hook LangGraph up to the Slack bot and persist the state in Redis.
+The JWT expired, so the gateway returned a 401 instead of a CORS error.
+Run the evals with temperature zero and compare the F1 score against the baseline.
+We use Anthropic's API with prompt caching, and fall back to Gemini on a 429.
+The Jupyter notebook uses NumPy, pandas and scikit-learn to build the churn model.
+Deploy the Lambda behind API Gateway and store the secrets in AWS Secrets Manager.
+Cursor and Claude Code both support MCP, but Antigravity is still new to me.
+Tokenize the contract, chunk it by section, and embed each chunk with a tokenizer-aware splitter.
+For the demo, I'll show the dashboard in Tableau and the agent in Streamlit.
+The mutex protects the cache, but a semaphore limits concurrent requests to the model.
+Check the entitlements and the Info.plist before you upload the build to TestFlight.
+The Rust service exposes gRPC, and the Python client generates stubs with protobuf.
+Let's add Sentry for errors and PagerDuty for on-call alerts on the inference service.

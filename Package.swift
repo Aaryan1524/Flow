@@ -12,6 +12,7 @@ let package = Package(
         .library(name: "Audio", targets: ["Audio"]),
         .library(name: "Insertion", targets: ["Insertion"]),
         .library(name: "History", targets: ["History"]),
+        .library(name: "PersonalDictionary", targets: ["PersonalDictionary"]),
         .executable(name: "flow-eval", targets: ["flow-eval"]),
         .executable(name: "flow-record", targets: ["flow-record"]),
     ],
@@ -51,6 +52,11 @@ let package = Package(
         // Local dictation log (JSON Lines)
         .target(name: "History", path: "Sources/History"),
 
+        // Your words: names and jargon for the speech engine, plus spelling and capitalisation for the cleanup pass
+        .target(
+            name: "PersonalDictionary", path: "Sources/PersonalDictionary",
+            resources: [.copy("Resources/starter-dictionary.txt")]),
+
         // Command-line harness: runs your clips through every engine, reports WER and latency
         .executableTarget(
             name: "flow-eval",
@@ -65,6 +71,7 @@ let package = Package(
         .testTarget(name: "HotkeyTests", dependencies: ["Hotkey"], path: "Tests/HotkeyTests"),
         .testTarget(name: "AudioTests", dependencies: ["Audio"], path: "Tests/AudioTests"),
         .testTarget(name: "InsertionTests", dependencies: ["Insertion"], path: "Tests/InsertionTests"),
+        .testTarget(name: "PersonalDictionaryTests", dependencies: ["PersonalDictionary", "Cleanup"], path: "Tests/PersonalDictionaryTests"),
         .testTarget(name: "HistoryTests", dependencies: ["History"], path: "Tests/HistoryTests"),
         .testTarget(name: "CleanupTests", dependencies: ["FlowKit", "Cleanup"], path: "Tests/CleanupTests"),
     ]
