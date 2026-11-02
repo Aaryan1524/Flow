@@ -18,6 +18,30 @@ import Testing
         #expect(clean("mm okay that works") == "Okay that works.")
     }
 
+    @Test func keepsMillimetresAfterASpelledOutNumber() {
+        let samples = [
+            "The bolt is ten mm wide.",
+            "Cut it to twelve mm.",
+            "Set the pitch to twenty-five mm.",
+            "Allow a gap of five mm on each side.",
+            "The rod is one hundred mm long.",
+            "It moved a few mm to the left.",
+            "The screw is ten m long.",
+            "Give the dimensions in mm.",
+        ]
+        for sample in samples {
+            #expect(clean(sample) == sample, "changed: \(sample.debugDescription) -> \(clean(sample).debugDescription)")
+        }
+        #expect(clean("the bolt is ten mm wide") == "The bolt is ten mm wide.")
+        #expect(clean("trim it to twenty five mm") == "Trim it to twenty five mm.")
+    }
+
+    @Test func stillRemovesAHumNextToANumber() {
+        #expect(clean("We need ten, mm, more chairs.") == "We need ten more chairs.")
+        #expect(clean("It was room 12. Mm, okay.") == "It was room 12. Okay.")
+        #expect(clean("mm ten more minutes") == "Ten more minutes.")
+    }
+
     @Test func removesFillersAndTheirCommas() {
         #expect(clean("Um, I think we should, uh, go to the store.") == "I think we should go to the store.")
         #expect(clean("It works, um.") == "It works.")
@@ -27,6 +51,27 @@ import Testing
     @Test func keepsTheCommaAfterAnIntroWord() {
         #expect(clean("So, um, it works.") == "So, it works.")
         #expect(clean("Well, uh, maybe.") == "Well, maybe.")
+    }
+
+    @Test func keepsTheCommaAfterAnOpeningWordThatIsNotAFunctionWord() {
+        #expect(clean("Oh, um, never mind.") == "Oh, never mind.")
+        #expect(clean("Dana, uh, can you review this?") == "Dana, can you review this?")
+        #expect(clean("Yesterday, um, we shipped it.") == "Yesterday, we shipped it.")
+        #expect(clean("oh, um, never mind") == "Oh, never mind.")
+        #expect(clean("Look, you know, it is fine.") == "Look, it is fine.")
+        // A function word, or a word in the middle of a sentence, has no comma of its own to keep.
+        #expect(clean("I, um, think so.") == "I think so.")
+        #expect(clean("The, uh, report is late.") == "The report is late.")
+        #expect(clean("We went to the store, um, yesterday.") == "We went to the store yesterday.")
+    }
+
+    @Test func aSpokenCommaAfterAFillerLandsOnTheWordBeforeIt() {
+        #expect(clean("the report um comma go on") == "The report, go on.")
+        #expect(clean("we left uh period Then it rained") == "We left. Then it rained.")
+    }
+
+    @Test func removesAFillerThatARepeatedPhraseHidAtFirst() {
+        #expect(clean("Well, you know you know, it works.") == "Well, it works.")
     }
 
     @Test func removesYouKnowOnlyWhenItIsAFiller() {
@@ -124,6 +169,29 @@ import Testing
         #expect(clean("Ask Dr. patel about it.") == "Ask Dr. patel about it.")
     }
 
+    @Test func doesNotCapitalizeAfterLowercaseAbbreviations() {
+        let samples = [
+            "See fig. below for details.",
+            "Smith et al. showed the same effect.",
+            "Use approx. half the amount.",
+            "Compare the results, cf. the appendix.",
+            "Walk down main st. toward the park.",
+            "Apples vs. oranges is a fair comparison.",
+            "Bring pens, paper, etc. for the class.",
+            "Ask Mrs. patel or Ms. okafor about it.",
+            "Item no. 5 is late.",
+        ]
+        for sample in samples {
+            #expect(clean(sample) == sample, "changed: \(sample.debugDescription) -> \(clean(sample).debugDescription)")
+        }
+    }
+
+    @Test func stillCapitalizesAfterAWordThatLooksLikeAnAbbreviation() {
+        #expect(clean("did it break? no. it works") == "Did it break? No. It works.")
+        #expect(clean("i called al. then he left") == "I called al. Then he left.")
+        #expect(clean("i said no. we left") == "I said no. We left.")
+    }
+
     @Test func doesNotCapitalizeAfterAnEllipsis() {
         #expect(clean("Well... maybe it works.") == "Well... maybe it works.")
         #expect(clean("Well\u{2026} maybe it works.") == "Well\u{2026} maybe it works.")
@@ -212,10 +280,33 @@ import Testing
             "um so i i think we should uh go comma if you know it works period new paragraph thanks",
             "th- the plan, you know, is is ready question mark",
             "Hello comma world period",
+            "oh, um, never mind",
+            "the bolt is ten mm wide and long long ago she had a boo boo",
+            "over and over and over again, the the cat the the cat sat",
+            "see fig. below. no. it works. Dana, uh, can you look",
+            "the report um comma go on",
+            "well, well, you know you know comma that works",
         ]
         for sample in samples {
             let once = clean(sample)
-            #expect(clean(once) == once, "not stable: \(sample)")
+            #expect(clean(once) == once, "not stable: \(sample.debugDescription) -> \(once.debugDescription)")
+        }
+    }
+
+    @Test func cleaningCleanSentencesIsAFixedPoint() {
+        for sample in Self.cleanSentences {
+            let once = clean(sample)
+            #expect(clean(once) == once, "not stable: \(sample.debugDescription)")
+        }
+    }
+
+    @Test func cleaningDictationAgainChangesNothing() {
+        var random = SplitMix64(seed: 20_260_502)
+        for _ in 0..<1_000 {
+            let sample = Self.generatedDictation(&random)
+            let once = clean(sample)
+            let twice = clean(once)
+            #expect(twice == once, "not stable: \(sample.debugDescription) -> \(once.debugDescription) -> \(twice.debugDescription)")
         }
     }
 
@@ -373,6 +464,123 @@ extension RulesCleanerTests {
         #expect(clean("we need to we need to leave") == "We need to leave.")
         #expect(clean("send it to the to the team") == "Send it to the team.")
         #expect(clean("it is it is ready") == "It is ready.")
+    }
+}
+
+// MARK: - Doubled words that are not stutters
+
+extension RulesCleanerTests {
+    @Test func keepsReduplicatedContentWordsInPunctuatedText() {
+        let samples = [
+            "She has a boo boo on her knee.",
+            "Far far away there lived a king.",
+            "Long long ago there was a village.",
+            "It is a pom pom.",
+            "A can can hold five liters.",
+            "Night night, sleep tight.",
+            "Dum dum is a candy.",
+            "The choo choo train left at noon.",
+            "Do do do.",
+        ]
+        for sample in samples {
+            #expect(clean(sample) == sample, "changed: \(sample.debugDescription) -> \(clean(sample).debugDescription)")
+        }
+    }
+
+    @Test func keepsReduplicatedContentWordsInUncasedText() {
+        #expect(clean("she has a boo boo on her knee") == "She has a boo boo on her knee.")
+        #expect(clean("long long ago there was a village") == "Long long ago there was a village.")
+        #expect(clean("a can can hold five liters") == "A can can hold five liters.")
+        #expect(clean("the pom pom fell off") == "The pom pom fell off.")
+    }
+
+    @Test func keepsIdiomsThatRepeatAWordAroundAConnective() {
+        let samples = [
+            "Over and over and over again.",
+            "Day by day by day.",
+            "He fell back time after time after time.",
+            "Step by step by step we climbed.",
+        ]
+        for sample in samples {
+            #expect(clean(sample) == sample, "changed: \(sample.debugDescription) -> \(clean(sample).debugDescription)")
+        }
+        #expect(clean("over and over and over again") == "Over and over and over again.")
+    }
+
+    @Test func collapsesStuttersOnFunctionWordsInAnyCase() {
+        #expect(clean("The the report is late.") == "The report is late.")
+        #expect(clean("It is the the best option.") == "It is the best option.")
+        #expect(clean("She said that we we should go.") == "She said that we should go.")
+        #expect(clean("It was to to late.") == "It was to late.")
+        #expect(clean("i i think the the plan is is solid") == "I think the plan is solid.")
+    }
+
+    @Test func keepsDoubledFunctionWordsThatAreRealWords() {
+        let samples = [
+            "I gave her her keys back.",
+            "They were big fans of The The.",
+            "I do do care about this.",
+        ]
+        for sample in samples {
+            #expect(clean(sample) == sample, "changed: \(sample.debugDescription) -> \(clean(sample).debugDescription)")
+        }
+    }
+
+    @Test func collapsesAStutteredAuxiliaryOnlyRightAfterAPronoun() {
+        #expect(clean("we would would like that") == "We would like that.")
+        #expect(clean("they said we should should wait") == "They said we should wait.")
+        #expect(clean("Would would you mind?") == "Would would you mind?")
+        #expect(clean("Will will come to the party.") == "Will will come to the party.")
+    }
+}
+
+// MARK: - Long runs of one word
+
+extension RulesCleanerTests {
+    /// What cleaning `text` returns and how long it took. A debug build is slow, so the bound is a ceiling for the real thing.
+    private func timed(_ text: String) -> (text: String, seconds: Double) {
+        var result = ""
+        let elapsed = ContinuousClock().measure { result = clean(text) }
+        return (result, Double(elapsed.components.seconds) + Double(elapsed.components.attoseconds) / 1e18)
+    }
+
+    @Test func collapsesAVeryLongRunOfOneWordInLinearTime() {
+        let run = timed(Array(repeating: "the", count: 20_000).joined(separator: " "))
+        #expect(run.text == "The")
+        #expect(run.seconds < 1, "took \(run.seconds) s")
+    }
+
+    @Test func collapsesAnEvenLongerRunWithoutSlowingDownPerWord() {
+        let run = timed(Array(repeating: "the", count: 100_000).joined(separator: " "))
+        #expect(run.text == "The")
+        #expect(run.seconds < 5, "took \(run.seconds) s")
+    }
+
+    @Test func removesAVeryLongRunOfFillersInLinearTime() {
+        let run = timed(Array(repeating: "um", count: 100_000).joined(separator: " "))
+        #expect(run.text == "")
+        #expect(run.seconds < 3, "took \(run.seconds) s")
+    }
+
+    @Test func keepsAVeryLongRunOfAContentWordInLinearTime() {
+        let words = Array(repeating: "boo", count: 20_000)
+        let run = timed(words.joined(separator: " "))
+        #expect(run.text == "Boo " + words.dropFirst().joined(separator: " ") + ".")
+        #expect(run.seconds < 1, "took \(run.seconds) s")
+    }
+
+    @Test func keepsAVeryLongRunOfOnePhraseInLinearTime() {
+        let text = Array(repeating: "we should", count: 10_000).joined(separator: " ") + " call"
+        let run = timed(text)
+        #expect(run.text == "W" + text.dropFirst() + ".")
+        #expect(run.seconds < 1, "took \(run.seconds) s")
+    }
+
+    @Test func collapsesManySeparateStuttersInLinearTime() {
+        let text = Array(repeating: "we should we should go to the the store and", count: 3_000).joined(separator: " ") + " stop"
+        let run = timed(text)
+        #expect(run.text.hasPrefix("We should go to the store and we should go"), "got \(run.text.prefix(60))")
+        #expect(run.seconds < 1, "took \(run.seconds) s")
     }
 }
 
@@ -554,6 +762,23 @@ extension RulesCleanerTests {
         "First, we wash. Second, we rinse.",
         "The city of Winston-Salem is in North Carolina.",
         "Pre- and post-processing both run.",
+        // Doubled words, units and abbreviations that are not mistakes.
+        "She has a boo boo on her knee.",
+        "Far far away there lived a king.",
+        "Long long ago there was a village.",
+        "It is a pom pom.",
+        "A can can hold five liters.",
+        "Night night, sleep tight.",
+        "Dum dum is a candy.",
+        "Over and over and over again.",
+        "Day by day by day.",
+        "Do do do.",
+        "I gave her her keys back.",
+        "The bolt is ten mm wide.",
+        "See fig. below for details.",
+        "Smith et al. showed the same effect.",
+        "Oh, never mind.",
+        "Dana, can you review this?",
         // Layout.
         "Dear team,\n\nThe release is ready.\n\nBest regards,\nDana",
         "Agenda\n\n1. Budget review.\n2. Hiring plan.\n3. Open questions.",
@@ -605,6 +830,31 @@ extension RulesCleanerTests {
         }
         let separator = [" ", " ", "\n", "\n\n"][Int(random.next() % 4)]
         return sentences.joined(separator: separator)
+    }
+}
+
+extension RulesCleanerTests {
+    /// Dictation with fillers, stutters, doubled words, units and abbreviations, cased or not. It has no spoken
+    /// punctuation: whether "period" is a command can depend on the words around it, which the first pass changes.
+    fileprivate static func generatedDictation(_ random: inout SplitMix64) -> String {
+        let pieces = [
+            "um", "uh", "hmm", "mm", "you know", "like", "i", "i", "we", "the", "the", "a", "to", "to", "is", "and", "so", "that",
+            "would", "can", "do", "boo boo", "far far", "night night", "think", "should", "go", "plan", "report", "river",
+            "ten", "twelve", "5", "mm", "fig.", "etc.", "vs.", "al.", "no.", "Dana", "Oh,", "well,", "I'm", "it's", "what",
+            "how", "over and over", "by day", "th-", "w-we",
+        ]
+        let count = 3 + Int(random.next() % 14)
+        var words: [String] = []
+        for _ in 0..<count {
+            let piece = pieces[Int(random.next() % UInt64(pieces.count))]
+            words.append(piece)
+            // A repeat of the last piece, so doubled and tripled words are common.
+            if random.next() % 5 == 0 { words.append(piece) }
+        }
+        var text = words.joined(separator: " ")
+        if random.next() % 3 == 0 { text = text.prefix(1).uppercased() + text.dropFirst() }
+        if random.next() % 3 == 0 { text += "." }
+        return text
     }
 }
 
