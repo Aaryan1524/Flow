@@ -7,6 +7,14 @@ import Foundation
 /// words, turns clearly spoken punctuation and line commands into the real thing, restores sentence
 /// capitalization and spacing, and swaps dictionary terms for their canonical spelling. Text that is
 /// already clean passes through unchanged. It does not resolve self-corrections; that takes a model.
+///
+/// When unsure it leaves the text alone: a punctuation word is a command only when nothing around it makes it a
+/// noun ("a long period", "split on comma"), a repeat is a stutter only when it reads like one ("the the", not
+/// "Bora Bora" or "ho ho ho"), and "?" is added only to a plainly spoken question.
+///
+/// Whitespace contract: line structure survives (every blank line, each line's leading indentation, tabs between
+/// words). Only these are normalized: CRLF becomes LF, a run of spaces inside a line becomes one space, and
+/// trailing whitespace is dropped. Input with no words in it ("...", "?") is returned trimmed but otherwise as is.
 public struct RulesCleaner: TextCleaner {
     public let name = "rules"
 
@@ -40,7 +48,7 @@ public struct RulesCleaner: TextCleaner {
 
     public func cleaned(_ raw: String) -> String {
         var tokens = Self.tokenize(raw)
-        guard tokens.contains(where: \.isWord) else { return "" }
+        guard tokens.contains(where: \.isWord) else { return raw.trimmingCharacters(in: .whitespacesAndNewlines) }
         let wasUncased = tokens.first(where: \.isWord)?.core.first?.isLowercase == true
 
         applySpokenCommands(&tokens)
@@ -62,6 +70,11 @@ public struct RulesCleaner: TextCleaner {
         var core = ""
         var trail = ""
         var breaks = 0
+        /// The gap before this token on its line: a single space, or the original run when it held a tab.
+        var space = " "
+        /// Whether the token began a line in the input, and the indentation it had there.
+        var startsLine = false
+        var indent = ""
 
         var isBreak: Bool { breaks > 0 }
         var isWord: Bool { breaks == 0 && !core.isEmpty }
@@ -76,22 +89,36 @@ public struct RulesCleaner: TextCleaner {
     private static func tokenize(_ text: String) -> [Token] {
         var tokens: [Token] = []
         var current = ""
+        var gap = ""
         var pendingBreaks = 0
+        var atLineStart = true
 
         func flush() {
             guard !current.isEmpty else { return }
-            if pendingBreaks > 0, !tokens.isEmpty { tokens.append(Token(breaks: min(pendingBreaks, 2))) }
-            pendingBreaks = 0
-            tokens.append(split(current))
+            if pendingBreaks > 0, !tokens.isEmpty { tokens.append(Token(breaks: pendingBreaks)) }
+            var token = split(current)
+            token.startsLine = atLineStart
+            if atLineStart {
+                token.indent = gap
+            } else if gap.contains("\t") {
+                token.space = gap
+            }
+            tokens.append(token)
             current = ""
+            gap = ""
+            pendingBreaks = 0
+            atLineStart = false
         }
 
         for character in text {
             if character.isNewline {
                 flush()
                 pendingBreaks += 1
+                gap = ""
+                atLineStart = true
             } else if character.isWhitespace {
                 flush()
+                gap.append(character)
             } else {
                 current.append(character)
             }
@@ -127,18 +154,25 @@ public struct RulesCleaner: TextCleaner {
 
     private static func render(_ tokens: [Token]) -> String {
         var output = ""
-        var needsSpace = false
+        var atLineStart = true
         for token in tokens {
             if token.isBreak {
                 output += String(repeating: "\n", count: token.breaks)
-                needsSpace = false
-            } else {
-                if needsSpace { output += " " }
-                output += token.lead + token.core + token.trail
-                needsSpace = true
+                atLineStart = true
+                continue
             }
+            if atLineStart {
+                if token.startsLine { output += token.indent }
+            } else {
+                output += token.space
+            }
+            output += token.lead + token.core + token.trail
+            atLineStart = false
         }
-        return output.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Keep the first line's indentation; only blank lines before it and whitespace after the end go.
+        while output.first?.isNewline == true { output.removeFirst() }
+        while output.last?.isWhitespace == true { output.removeLast() }
+        return output
     }
 
     private static func endsSentence(_ trail: String) -> Bool {
@@ -147,85 +181,195 @@ public struct RulesCleaner: TextCleaner {
 
     // MARK: - Spoken commands
 
-    /// Words that, right before "period" or "new line", mean the speaker is talking about the thing, not commanding it.
-    private static let mentionPrefixes: Set<String> = [
-        "a", "an", "the", "this", "that", "these", "those", "my", "your", "our", "their", "his", "her", "its",
-        "no", "one", "each", "every", "another", "any", "some", "of", "with", "without", "add", "adding", "insert",
-        "put", "use", "using", "type", "typing", "press", "key", "start", "begin", "create", "make", "need", "want",
-        "oxford", "serial", "trailing", "missing", "extra", "stray", "last", "first", "decimal", "big", "red",
+    private static let determiners: Set<String> = [
+        "a", "an", "the", "this", "that", "these", "those", "my", "your", "our", "their", "his", "her", "its", "no",
+        "each", "every", "another", "any", "some", "many", "much", "few", "several",
     ]
-    private static let periodNouns: Set<String> = [
-        "time", "grace", "trial", "billing", "waiting", "same", "whole", "entire", "cooling", "probation", "holding",
+    /// Prepositions and conjunctions: a clause cannot end on them, so a punctuation word after one is a noun ("on comma").
+    private static let connectives: Set<String> = [
+        "of", "with", "without", "on", "onto", "after", "before", "at", "in", "into", "per", "between", "via", "by",
+        "from", "to", "as", "than", "and", "or", "but", "nor", "during", "over", "under", "through", "for", "about",
     ]
-    private static let lineNounFollowers: Set<String> = ["character", "characters", "break", "breaks", "of"]
+    /// Verbs that take a punctuation name as their bare object: "strip newline", "put period", "replace comma".
+    private static let editVerbs: Set<String> = [
+        "add", "adds", "added", "adding", "insert", "inserts", "inserted", "inserting", "put", "puts", "putting",
+        "type", "types", "typed", "typing", "press", "presses", "pressed", "pressing", "hit", "hits", "hitting",
+        "remove", "removes", "removed", "removing", "delete", "deletes", "deleted", "deleting",
+        "strip", "strips", "stripped", "stripping", "trim", "trims", "trimmed", "trimming",
+        "split", "splits", "splitting", "join", "joins", "joined", "joining",
+        "replace", "replaces", "replaced", "replacing", "append", "appends", "appended", "appending",
+        "escape", "escapes", "escaped", "escaping", "enter", "change", "changes", "changed", "changing",
+        "swap", "swaps", "swapped", "swapping", "convert", "converts", "converted", "converting",
+        "say", "says", "said", "saying", "key", "character", "symbol", "sign", "word", "words",
+        "print", "prints", "printed", "printing", "write", "writes", "wrote", "writing", "output", "outputs", "echo",
+        "emit", "emits", "prepend", "expect", "expects", "ignore", "ignores", "skip", "skips", "keep", "keeps",
+        "preserve", "preserves", "count", "counts", "handle", "handles", "contain", "contains", "include", "includes",
+        "allow", "allows", "parse", "parses", "treat", "treats", "treated", "read", "reads",
+    ]
+    /// Words that describe the thing: "long period", "trailing newline", "Oxford comma".
+    private static let modifiers: Set<String> = [
+        "long", "short", "next", "previous", "same", "whole", "entire", "final", "oxford", "serial", "trailing",
+        "leading", "missing", "extra", "stray", "decimal", "single", "double", "inverted", "forgotten", "wrong",
+        "second", "third", "fourth", "fifth", "more", "additional", "other", "proper", "correct",
+    ]
+    /// Verbs that take "period" or "new line" as an object only sometimes: "use period as the delimiter" mentions it,
+    /// "that is what we use period" does not. They block a command only while the sentence carries on lowercase.
+    private static let softPrefixes: Set<String> = [
+        "use", "uses", "using", "make", "makes", "making", "need", "needs", "needed", "want", "wants", "wanted",
+        "start", "starts", "starting", "begin", "begins", "beginning", "create", "creates", "creating",
+    ]
+    /// Numbers are items in a list ("item one comma item two") unless a determiner or verb in front makes them a
+    /// count of the thing ("put one comma", "the first comma").
+    private static let numberWords: Set<String> = [
+        "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "first", "last",
+    ]
+    private static let quantifiers: Set<String> = ["only", "just", "exactly", "least", "most", "than"]
+    /// "period" is a noun after these: "the waiting period", "the holiday period".
+    private static let periodCompounds: Set<String> = [
+        "time", "grace", "trial", "billing", "waiting", "cooling", "probation", "holding", "holiday", "holidays",
+        "summer", "winter", "school", "ice", "dark", "quiet", "busy", "transition", "reporting", "review", "notice",
+        "testing", "sampling", "fiscal", "financial", "historical", "recovery", "development", "vacation",
+    ]
+    private static let mentionPrefixes = determiners.union(connectives).union(editVerbs).union(modifiers)
+
+    private static let nameFollowers: Set<String> = ["key", "keys", "button", "symbol", "symbols", "sign", "icon", "character", "characters"]
+    private static let commaFollowers = nameFollowers.union(["separated", "delimited", "splice", "splices", "placement", "usage"])
+    private static let lineFollowers = nameFollowers.union([
+        "break", "breaks", "of", "item", "items", "manager", "managers", "feed", "ending", "endings", "separator",
+        "delimiter", "escape", "sequence",
+    ])
+
+    private enum Command {
+        case mark(String, words: Int)
+        case lineBreak(Int, words: Int)
+    }
 
     private func applySpokenCommands(_ tokens: inout [Token]) {
-        var i = 0
+        // Text the speech model already punctuated needs more evidence before a word is taken for a command.
+        let punctuated = tokens.contains { $0.isWord && Self.endsSentence($0.trail) }
+        var i = 1
         while i < tokens.count {
-            guard tokens[i].isWord, i > 0, tokens[i - 1].isWord else { i += 1; continue }
-            let previous = tokens[i - 1]
-            let key = tokens[i].key
-            let next = i + 1 < tokens.count ? tokens[i + 1] : nil
-            let nextKey = next?.isWord == true ? next?.key : nil
-            guard !Self.mentionPrefixes.contains(previous.key) else { i += 1; continue }
-
-            var replacement: String?
-            var length = 1
-            // Punctuation words only count as commands right after an unpunctuated word.
-            switch previous.trail.isEmpty ? key : "" {
-            case "comma":
-                replacement = ","
-            case "period":
-                let atEnd = next == nil || next?.isBreak == true || (nextKey == "new" && Self.isLineCommand(tokens, at: i + 1))
-                let nextIsCapitalized = next?.core.first?.isUppercase == true
-                if (atEnd || nextIsCapitalized) && !Self.periodNouns.contains(previous.key) { replacement = "." }
-            case "full" where nextKey == "stop":
-                replacement = "."
-                length = 2
-            case "question" where nextKey == "mark":
-                replacement = "?"
-                length = 2
-            case "exclamation" where nextKey == "point" || nextKey == "mark":
-                replacement = "!"
-                length = 2
-            default:
-                break
-            }
-            // "period" with its own punctuation ("period.") is still the command; anything else is not.
-            let commandWords = tokens[i..<(i + length)]
-            if replacement != nil, commandWords.dropLast().contains(where: { !$0.trail.isEmpty || !$0.lead.isEmpty }) {
-                replacement = nil
-            }
-            if let replacement {
-                tokens[i - 1].trail = replacement
-                tokens.removeSubrange(i..<(i + length))
+            guard tokens[i].isWord, let command = Self.command(at: i, in: tokens, punctuated: punctuated) else {
+                i += 1
                 continue
             }
-
-            if key == "new", let nextKey, nextKey == "line" || nextKey == "paragraph", Self.isLineCommand(tokens, at: i) {
-                tokens.replaceSubrange(i..<(i + 2), with: [Token(breaks: nextKey == "line" ? 1 : 2)])
-                continue
+            switch command {
+            case .mark(let mark, let words):
+                tokens[i - 1].trail = mark
+                tokens.removeSubrange(i..<(i + words))
+            case .lineBreak(let count, let words):
+                tokens.replaceSubrange(i..<(i + words), with: [Token(breaks: count)])
             }
-            if key == "newline" {
-                tokens.replaceSubrange(i..<(i + 1), with: [Token(breaks: 1)])
-                continue
-            }
-            i += 1
         }
+        // Two breaks in a row make one blank-line break ("new line new line"), never more than a spoken paragraph.
+        var merged: [Token] = []
+        for token in tokens {
+            if token.isBreak, let last = merged.last, last.isBreak {
+                merged[merged.count - 1].breaks = max(last.breaks, token.breaks, min(2, last.breaks + token.breaks))
+            } else {
+                merged.append(token)
+            }
+        }
+        tokens = merged
         // A command at the very end leaves a trailing break; drop it.
         while tokens.last?.isBreak == true { tokens.removeLast() }
     }
 
-    /// "new line" / "new paragraph" at `index` is a command unless the next word makes it a noun phrase.
-    private static func isLineCommand(_ tokens: [Token], at index: Int) -> Bool {
-        guard index + 1 < tokens.count, tokens[index].isWord, tokens[index].key == "new" else { return false }
-        let kind = tokens[index + 1]
-        guard kind.isWord, kind.key == "line" || kind.key == "paragraph" else { return false }
-        guard kind.lead.isEmpty, tokens[index].lead.isEmpty, tokens[index].trail.isEmpty else { return false }
-        if index + 2 < tokens.count, tokens[index + 2].isWord, lineNounFollowers.contains(tokens[index + 2].key) {
-            return false
+    /// The spoken command that starts at `index`, if the words there are plainly a command and not a mention of
+    /// the thing ("a long period", "split on comma", "the new line character").
+    private static func command(at index: Int, in tokens: [Token], punctuated: Bool) -> Command? {
+        let previous = tokens[index - 1]
+        guard previous.isWord || previous.isBreak else { return nil }
+        let key = tokens[index].key
+        let nextKey = index + 1 < tokens.count && tokens[index + 1].isWord ? tokens[index + 1].key : nil
+
+        var mark: String?
+        var breaks = 0
+        var words = 1
+        var followers = nameFollowers
+        switch key {
+        case "comma":
+            mark = ","
+            followers = commaFollowers
+        case "period":
+            mark = "."
+        case "full" where nextKey == "stop":
+            (mark, words) = (".", 2)
+        case "question" where nextKey == "mark":
+            (mark, words) = ("?", 2)
+        case "exclamation" where nextKey == "point" || nextKey == "mark":
+            (mark, words) = ("!", 2)
+        case "new" where nextKey == "line":
+            (breaks, words) = (1, 2)
+            followers = lineFollowers
+        case "new" where nextKey == "paragraph":
+            (breaks, words) = (2, 2)
+            followers = lineFollowers
+        case "newline" where !punctuated:
+            // The one-word form is mostly the name of the character, so text that is already punctuated keeps it.
+            breaks = 1
+            followers = lineFollowers
+        default:
+            return nil
         }
-        return true
+
+        // Punctuation goes on a word; only a line break can follow another break.
+        if mark != nil, !(previous.isWord && previous.trail.isEmpty) { return nil }
+        guard previous.isWord || breaks > 0 else { return nil }
+
+        // The command's own words carry no punctuation: "period." is the word followed by a full stop, which is how
+        // a sentence ending in the noun looks. The one exception is a line command the speech model punctuated as
+        // its own sentence ("Thanks. New line. Best regards.").
+        let span = tokens[index..<(index + words)]
+        let sentenceOfItsOwn = breaks > 0 && endsSentence(previous.trail)
+        guard span.allSatisfy({ $0.isWord && $0.lead.isEmpty }), span.dropLast().allSatisfy({ $0.trail.isEmpty }),
+            span.last?.trail.isEmpty == true || sentenceOfItsOwn
+        else { return nil }
+
+        let after = index + words < tokens.count ? tokens[index + words] : nil
+        if let after, after.isWord, followers.contains(after.key) { return nil }
+
+        if previous.isWord, previous.trail.isEmpty, isMention(tokens, at: index, after: after, punctuated: punctuated) {
+            return nil
+        }
+
+        if key == "period" {
+            // "period" only ends a sentence when something plainly follows it.
+            guard !periodCompounds.contains(previous.key) else { return nil }
+            let capitalized = after?.isWord == true && after?.lead.isEmpty == true && after?.core.first?.isUppercase == true
+            var lineCommandFollows = false
+            if after?.key == "new", case .lineBreak = command(at: index + 1, in: tokens, punctuated: punctuated) { lineCommandFollows = true }
+            let atEnd = after == nil || after?.isBreak == true
+            guard capitalized || lineCommandFollows || (atEnd && !punctuated) else { return nil }
+        }
+
+        if let mark { return .mark(mark, words: words) }
+        return .lineBreak(breaks, words: words)
+    }
+
+    /// Whether the word before the command makes it the name of a thing rather than an instruction.
+    private static func isMention(_ tokens: [Token], at index: Int, after: Token?, punctuated: Bool) -> Bool {
+        let previous = tokens[index - 1].key
+        if mentionPrefixes.contains(previous) { return true }
+        if softPrefixes.contains(previous) {
+            // Still a mention only while the sentence carries on in lowercase.
+            return after?.isWord == true && after?.lead.isEmpty == true && after?.core.first?.isLowercase == true
+        }
+        if numberWords.contains(previous) {
+            if punctuated { return true }
+            guard index >= 2, tokens[index - 2].isWord, tokens[index - 2].trail.isEmpty else { return false }
+            let earlier = tokens[index - 2].key
+            return mentionPrefixes.contains(earlier) || softPrefixes.contains(earlier) || quantifiers.contains(earlier)
+        }
+        guard punctuated else { return false }
+        // Text the speech model already punctuated: a determiner, preposition or editing verb anywhere earlier in
+        // the clause ("during the Victorian period", "add one more comma") suggests a noun phrase, so leave it.
+        for position in stride(from: index - 1, through: max(0, index - 3), by: -1) {
+            let token = tokens[position]
+            guard token.isWord, position == index - 1 || token.trail.isEmpty else { break }
+            if mentionPrefixes.contains(token.key) { return true }
+        }
+        return false
     }
 
     // MARK: - Fillers
@@ -304,6 +448,17 @@ public struct RulesCleaner: TextCleaner {
     private static let legitimateDoubles: Set<String> = [
         "had", "that", "very", "really", "bye", "no", "so", "ha", "yeah", "hello", "sorry", "please", "knock", "go",
     ]
+    /// Words people stutter on: pronouns, articles, auxiliaries, prepositions, conjunctions and their contractions.
+    private static let functionWords: Set<String> = [
+        "i", "we", "you", "he", "she", "it", "they", "me", "us", "him", "them", "the", "a", "an", "my", "our", "your",
+        "his", "her", "its", "their", "this", "that", "these", "those", "is", "are", "was", "were", "am", "be", "been",
+        "have", "has", "had", "do", "does", "did", "will", "would", "can", "could", "should", "may", "might", "must",
+        "to", "of", "in", "on", "at", "for", "with", "from", "by", "as", "about", "into", "and", "but", "or", "if", "so",
+        "because", "than", "then", "not", "there", "what", "when", "where", "who", "how", "why", "which", "more",
+        "some", "any", "all", "just", "also", "i'm", "i'll", "i've", "i'd", "we're", "we'll", "we've", "we'd", "you're",
+        "you'll", "you've", "he's", "she's", "it's", "they're", "that's", "there's", "don't", "didn't", "can't",
+        "won't", "isn't",
+    ]
     /// Short function words that stutter across a comma: "I, I think".
     private static let commaStutterWords: Set<String> = [
         "i", "we", "you", "they", "he", "she", "it", "the", "a", "an", "to", "of", "in", "on", "for", "with", "and", "but",
@@ -337,20 +492,7 @@ public struct RulesCleaner: TextCleaner {
             while start < tokens.count {
                 var collapsed = false
                 for length in stride(from: 3, through: 1, by: -1) where start + 2 * length <= tokens.count {
-                    let first = tokens[start..<(start + length)]
-                    let second = tokens[(start + length)..<(start + 2 * length)]
-                    guard first.allSatisfy(\.isWord), second.allSatisfy(\.isWord) else { continue }
-                    guard zip(first, second).allSatisfy({ $0.key == $1.key }) else { continue }
-                    guard !first.contains(where: { $0.core.contains(where: \.isNumber) }) else { continue }
-                    guard !first.contains(where: { !$0.lead.isEmpty }), !second.dropFirst().contains(where: { !$0.lead.isEmpty }) else { continue }
-                    // No punctuation inside or between the blocks, except a comma after a lone function word.
-                    let innerPunctuation = first.dropLast().contains { !$0.trail.isEmpty } || second.dropLast().contains { !$0.trail.isEmpty }
-                    guard !innerPunctuation else { continue }
-                    let lastTrail = first.last?.trail ?? ""
-                    if !lastTrail.isEmpty {
-                        guard length == 1, lastTrail == ",", Self.commaStutterWords.contains(first[start].key) else { continue }
-                    }
-                    if length == 1, lastTrail.isEmpty, Self.legitimateDoubles.contains(first[start].key) { continue }
+                    guard Self.isStutter(tokens, start: start, length: length) else { continue }
 
                     // Keep the second copy, which carries the punctuation, but keep a sentence-initial capital.
                     let wasCapitalized = tokens[start].core.first?.isUppercase == true
@@ -367,12 +509,63 @@ public struct RulesCleaner: TextCleaner {
         }
     }
 
-    /// "w-w-we" becomes "we"; anything that is not a stuttered first letter is left alone.
+    /// Whether the block of `length` words at `start` is immediately repeated by a stutter rather than on purpose.
+    private static func isStutter(_ tokens: [Token], start: Int, length: Int) -> Bool {
+        let first = tokens[start..<(start + length)]
+        let second = tokens[(start + length)..<(start + 2 * length)]
+        guard first.allSatisfy(\.isWord), second.allSatisfy(\.isWord) else { return false }
+        guard zip(first, second).allSatisfy({ $0.key == $1.key }) else { return false }
+        guard !first.contains(where: { $0.core.contains(where: \.isNumber) }) else { return false }
+        guard !first.contains(where: { !$0.lead.isEmpty }), !second.dropFirst().contains(where: { !$0.lead.isEmpty }) else { return false }
+        // No punctuation inside or between the blocks, except a comma after a lone function word.
+        let innerPunctuation = first.dropLast().contains { !$0.trail.isEmpty } || second.dropLast().contains { !$0.trail.isEmpty }
+        guard !innerPunctuation else { return false }
+        let lastTrail = first.last?.trail ?? ""
+        if !lastTrail.isEmpty {
+            guard length == 1, lastTrail == ",", commaStutterWords.contains(first[start].key) else { return false }
+        }
+
+        // Three or more copies in a row ("ho ho ho") are said on purpose, unless it is a function word ("the the the").
+        var copies = 2
+        var cursor = start + 2 * length
+        while sameBlock(tokens, start, cursor, length) { copies += 1; cursor += length }
+        cursor = start - length
+        while sameBlock(tokens, start, cursor, length) { copies += 1; cursor -= length }
+
+        if length == 1 {
+            let key = first[start].key
+            if lastTrail.isEmpty, legitimateDoubles.contains(key) { return false }
+            let isFunction = isFunctionWord(key)
+            if copies > 2, !isFunction { return false }
+            // "Bora Bora" and "Mahi Mahi" are names, not stutters.
+            if !isFunction, second[start + 1].core.first?.isUppercase == true { return false }
+            return true
+        }
+        // A repeated phrase is a stutter when it starts on a function word ("we should we should"); "New York New
+        // York" and "good morning good morning" are not.
+        guard copies == 2, isFunctionWord(first[start].key) else { return false }
+        return !second.allSatisfy { $0.core.first?.isUppercase == true }
+    }
+
+    private static func sameBlock(_ tokens: [Token], _ a: Int, _ b: Int, _ length: Int) -> Bool {
+        guard a >= 0, b >= 0, a + length <= tokens.count, b + length <= tokens.count else { return false }
+        return (0..<length).allSatisfy {
+            tokens[a + $0].isWord && tokens[b + $0].isWord && tokens[a + $0].key == tokens[b + $0].key
+        }
+    }
+
+    private static func isFunctionWord(_ key: String) -> Bool {
+        functionWords.contains(key.replacingOccurrences(of: "\u{2019}", with: "'"))
+    }
+
+    /// "w-w-we" and "w-we" become "we"; anything that is not a stuttered first letter is left alone.
     private static func repairLetterStutter(_ core: String) -> String? {
         let parts = core.split(separator: "-", omittingEmptySubsequences: false).map(String.init)
-        guard parts.count >= 3, let word = parts.last, word.count >= 2, let letter = word.first, letter.isLetter else { return nil }
+        guard parts.count >= 2, let word = parts.last, word.count >= 2, let letter = word.first, letter.isLetter else { return nil }
         let stutters = parts.dropLast()
         guard stutters.allSatisfy({ $0.count == 1 && $0.lowercased() == letter.lowercased() }) else { return nil }
+        // With one fragment the word must be one people stutter on; this keeps "t-test", "D-Day" and "e-mail" whole.
+        guard parts.count >= 3 || isFunctionWord(word.lowercased()) else { return nil }
         return parts[0].first?.isUppercase == true ? capitalizingFirst(word) : word
     }
 
@@ -388,7 +581,10 @@ public struct RulesCleaner: TextCleaner {
                     token.isWord && token.key == entry.words[offset] && (offset == entry.words.count - 1 || token.trail.isEmpty)
                 }
                 guard matches, let first = span.first, let last = span.last else { continue }
-                tokens.replaceSubrange(i..<(i + entry.words.count), with: [Token(lead: first.lead, core: entry.canonical, trail: last.trail)])
+                var replacement = first
+                replacement.core = entry.canonical
+                replacement.trail = last.trail
+                tokens.replaceSubrange(i..<(i + entry.words.count), with: [replacement])
                 break
             }
             i += 1
@@ -409,14 +605,77 @@ public struct RulesCleaner: TextCleaner {
         return first.uppercased() + text.dropFirst()
     }
 
+    private static func normalizedKey(_ token: Token) -> String {
+        token.key.replacingOccurrences(of: "\u{2019}", with: "'")
+    }
+
+    private static let iContractions: Set<String> = ["i'm", "i'll", "i've", "i'd"]
+    /// What follows the pronoun "i": an auxiliary, a common verb or an adverb. A variable is followed by "as", "in",
+    /// "to", "plus", "equals" and the like, so those are not here.
+    private static let pronounFollowers: Set<String> = [
+        "am", "was", "were", "have", "had", "will", "would", "can", "could", "should", "shall", "may", "might", "must",
+        "do", "did", "think", "thought", "guess", "suppose", "believe", "know", "knew", "see", "saw", "say", "said",
+        "mean", "meant", "feel", "felt", "want", "need", "like", "love", "hate", "hope", "wish", "wonder", "remember",
+        "forget", "forgot", "understand", "realize", "realise", "assume", "agree", "appreciate", "apologize",
+        "apologise", "promise", "get", "got", "go", "went", "give", "gave", "take", "took", "make", "made", "try",
+        "find", "found", "tell", "told", "ask", "hear", "heard", "read", "wrote", "write", "sent", "send", "left",
+        "leave", "came", "come", "look", "miss", "prefer", "expect", "use", "work", "live", "run", "ran", "call",
+        "bought", "buy", "put", "thank", "really", "just", "also", "always", "never", "still", "probably", "actually",
+        "definitely", "usually", "often", "already", "even", "only", "now", "mostly", "totally", "honestly",
+        "basically", "generally", "personally", "currently", "recently", "finally", "simply", "certainly",
+        "obviously", "sometimes", "rarely",
+    ]
+    /// Before a variable: "use i", "of i", "index i". The pronoun never follows a determiner or preposition.
+    private static let beforeVariable: Set<String> = [
+        "use", "using", "let", "var", "int", "set", "increment", "decrement", "loop", "variable", "index", "named",
+        "letter", "counter", "iterator", "the", "a", "an", "of", "for", "to", "in", "on", "at", "by", "with", "from",
+        "into", "over", "per", "between",
+    ]
+    /// Auxiliaries and comparisons that put the pronoun right behind them: "so do i", "can i", "than i".
+    private static let beforePronoun: Set<String> = [
+        "so", "neither", "nor", "than", "as", "am", "do", "does", "did", "can", "could", "will", "would", "should",
+        "shall", "may", "might", "must", "have", "has", "had",
+    ]
+
+    /// Capitalizes the pronoun "i" and its contractions. A lone "i" that is a variable or an index ("use i as the
+    /// index", "set i to zero") is left as written.
     private func fixPronounI(_ tokens: inout [Token]) {
-        let forms: Set<String> = ["i", "i'm", "i'll", "i've", "i'd", "i\u{2019}m", "i\u{2019}ll", "i\u{2019}ve", "i\u{2019}d"]
         for index in tokens.indices where tokens[index].isWord {
             let core = tokens[index].core
-            if forms.contains(core), !protectedSpellings.contains(core) {
+            let key = Self.normalizedKey(tokens[index])
+            guard core == core.lowercased(), !protectedSpellings.contains(core) else { continue }
+            if Self.iContractions.contains(key) {
                 tokens[index].core = Self.capitalizingFirst(core)
+            } else if key == "i", Self.isPronoun(tokens, at: index) {
+                tokens[index].core = "I"
             }
         }
+    }
+
+    /// What follows a variable named i: "i plus one", "i is less than ten", "i goes from 0 to 9".
+    private static let variableFollowers: Set<String> = [
+        "as", "in", "to", "from", "through", "till", "plus", "minus", "times", "over", "modulo", "mod", "equals",
+        "equal", "is", "less", "greater", "smaller", "bigger", "larger", "by", "at", "of", "on", "squared", "goes",
+        "starts", "runs", "ranges", "counts", "increments", "iterates", "points", "refers", "represents", "holds",
+        "stores", "and", "or",
+    ]
+    /// Words after which a new clause, and so a subject, can begin: "and i ate", "when i misplace".
+    private static let clauseOpeners: Set<String> = [
+        "and", "but", "so", "or", "if", "when", "while", "because", "that", "then", "maybe", "perhaps", "since", "though",
+        "although", "unless", "until", "once", "whether", "where", "what", "how", "why", "who", "after", "before",
+    ]
+
+    private static func isPronoun(_ tokens: [Token], at index: Int) -> Bool {
+        let before = index > 0 ? tokens[index - 1] : nil
+        let previous = before?.isWord == true && before?.trail.isEmpty == true ? before.map(normalizedKey) : nil
+        if let previous, beforePronoun.contains(previous) { return true }
+        if let previous, beforeVariable.contains(previous) { return false }
+        guard tokens[index].trail.isEmpty, index + 1 < tokens.count, tokens[index + 1].isWord else { return false }
+        let next = normalizedKey(tokens[index + 1])
+        if pronounFollowers.contains(next) || next.hasSuffix("n't") || next.hasSuffix("ed") || next.hasSuffix("ly") { return true }
+        // Any other word: the pronoun only where a subject can stand, which is the start of a clause.
+        guard next.first?.isLetter == true, !variableFollowers.contains(next) else { return false }
+        return previous == nil || clauseOpeners.contains(previous ?? "")
     }
 
     private func capitalizeSentences(_ tokens: inout [Token]) {
@@ -428,7 +687,9 @@ public struct RulesCleaner: TextCleaner {
             }
             guard tokens[index].isWord else { continue }
             let core = tokens[index].core
-            if atStart, Self.isPlainLowercase(core), !protectedSpellings.contains(core) {
+            if atStart, Self.isPlainLowercase(core), !protectedSpellings.contains(core),
+                !Self.startsCommand(tokens, at: index)
+            {
                 tokens[index].core = Self.capitalizingFirst(core)
             }
             let abbreviation = Self.abbreviations.contains(tokens[index].key) || core.contains(".")
@@ -439,14 +700,84 @@ public struct RulesCleaner: TextCleaner {
         }
     }
 
-    /// Words that open a question when the text has no punctuation to say so.
-    private static let questionOpeners: Set<String> = [
-        "what", "who", "whom", "whose", "where", "when", "why", "which", "how",
-        "is", "are", "was", "were", "am", "does", "did", "can", "could", "would", "should",
+    // MARK: - Closing punctuation
+
+    /// Command-line tools that are dictated as the first word of a command: "git rebase main branch".
+    private static let commandNames: Set<String> = [
+        "git", "npm", "npx", "yarn", "pnpm", "kubectl", "docker", "helm", "terraform", "ls", "cd", "pwd", "mkdir",
+        "rmdir", "chmod", "chown", "grep", "curl", "wget", "ssh", "scp", "sudo", "brew", "pip", "pip3", "cargo",
+        "rustc", "swift", "xcodebuild", "tmux", "vim",
+    ]
+    /// What follows a command name when the word is just a word: "swift is fast".
+    private static let afterNameWord: Set<String> = [
+        "is", "are", "was", "were", "has", "have", "had", "does", "did", "will", "would", "can", "could", "should", "may",
+        "might", "must", "means", "isn't", "doesn't", "wasn't", "won't",
     ]
 
+    /// Whether the word at `index` is a command-line tool opening a command ("git rebase", not "git is a tool").
+    private static func startsCommand(_ tokens: [Token], at index: Int) -> Bool {
+        guard commandNames.contains(tokens[index].key) else { return false }
+        let second = index + 1 < tokens.count ? tokens[index + 1] : nil
+        return second?.isWord != true || !afterNameWord.contains(second?.key ?? "")
+    }
+
+    /// Whether the sentence reads as something typed into a terminal rather than prose.
+    private static func looksLikeCommand(_ tokens: [Token], from start: Int, through end: Int) -> Bool {
+        if startsCommand(tokens, at: start) { return true }
+        return tokens[start...end].contains { token in
+            let core = Array(token.core)
+            return core.count > 1 && core[0] == "-" && (core[1].isLetter || core[1] == "-")
+        }
+    }
+
+    private static let invertingAuxiliaries: Set<String> = [
+        "is", "are", "was", "were", "am", "does", "did", "will", "would", "can", "could", "should", "shall", "may",
+        "might", "must", "has",
+    ]
+    /// "do", "have" and "had" also start commands ("do this", "have it done"), so only a person counts as a subject.
+    private static let imperativeAuxiliaries: Set<String> = ["do", "have", "had"]
+    private static let personSubjects: Set<String> = [
+        "i", "you", "we", "they", "anyone", "anybody", "someone", "somebody", "everyone", "everybody",
+    ]
+    private static let otherSubjects: Set<String> = [
+        "he", "she", "it", "there", "this", "that", "these", "those", "nobody", "the", "a", "an", "my", "your", "our",
+        "their", "his", "her", "its", "any", "some", "every", "each",
+    ]
+    private static let whWords: Set<String> = ["what", "who", "whom", "whose", "where", "when", "why", "how"]
+    private static let whContractions: Set<String> = [
+        "what's", "who's", "where's", "when's", "why's", "how's", "what're", "who're", "where're", "how're",
+    ]
+    /// "how many ounces are in a pound", "how about lunch"; "how to fix it" and "how I did it" are statements.
+    private static let howQuestionWords: Set<String> = [
+        "many", "much", "long", "old", "far", "often", "big", "tall", "fast", "soon", "come", "about",
+    ]
+    private static let questionNouns: Set<String> = [
+        "time", "day", "date", "month", "year", "week", "size", "color", "colour", "kind", "type", "sort", "one", "ones",
+        "version", "option", "else",
+    ]
+
+    /// Whether the sentence is plainly a question without punctuation to say so: one clause that opens with an
+    /// inverted auxiliary and its subject ("can you send it") or a wh-word and an auxiliary ("what is the plan").
+    private static func isPlainQuestion(_ sentence: ArraySlice<Token>) -> Bool {
+        guard sentence.dropLast().allSatisfy({ $0.trail.isEmpty }) else { return false }
+        let keys = sentence.map(normalizedKey)
+        guard let first = keys.first else { return false }
+        let second = keys.count > 1 ? keys[1] : ""
+        if invertingAuxiliaries.contains(first) {
+            return personSubjects.contains(second) || otherSubjects.contains(second)
+        }
+        if imperativeAuxiliaries.contains(first) { return personSubjects.contains(second) }
+        if whContractions.contains(first) { return true }
+        if whWords.contains(first) {
+            if invertingAuxiliaries.contains(second) || imperativeAuxiliaries.contains(second) { return true }
+            if first == "how", howQuestionWords.contains(second) { return true }
+        }
+        // "which" opens statements too ("which is why we left"); it asks only before a noun ("which one").
+        return (first == "what" || first == "which") && questionNouns.contains(second)
+    }
+
     /// Text that arrived uncased (lowercase, no punctuation) gets a closing mark when it reads as a sentence:
-    /// "?" if it opens like a question, otherwise ".".
+    /// "?" if it is plainly a question, otherwise ".". Commands typed at a terminal are left without one.
     private func closeFinalSentence(_ tokens: inout [Token]) {
         guard tokens.filter(\.isWord).count >= 3, let lastIndex = tokens.lastIndex(where: \.isWord) else { return }
         let last = tokens[lastIndex]
@@ -454,9 +785,7 @@ public struct RulesCleaner: TextCleaner {
 
         var first = lastIndex
         while first > 0, tokens[first - 1].isWord, !Self.endsSentence(tokens[first - 1].trail) { first -= 1 }
-        let opener = tokens[first].key
-        let second = first + 1 < tokens.count && tokens[first + 1].isWord ? tokens[first + 1].key : ""
-        let isQuestion = Self.questionOpeners.contains(opener) && !(opener == "how" && second == "to") && !(opener == "what" && second == "a")
-        tokens[lastIndex].trail = isQuestion ? "?" : "."
+        guard !Self.looksLikeCommand(tokens, from: first, through: lastIndex) else { return }
+        tokens[lastIndex].trail = Self.isPlainQuestion(tokens[first...lastIndex]) ? "?" : "."
     }
 }
