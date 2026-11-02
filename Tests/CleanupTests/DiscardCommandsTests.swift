@@ -94,4 +94,33 @@ import Testing
     @Test func itAfterAnythingOtherThanYouKnowWhatIsNotACommand() {
         #expect(DiscardCommands.apply("The idea is wrong. Scratch it, I think.") == "The idea is wrong. Scratch it, I think.")
     }
+
+    // MARK: - A retraction that starts mid-sentence
+
+    @Test func youKnowWhatScratchThisAfterACutOffWordStillRetractsTheThought() {
+        // You cut yourself off ("two p-") and pivoted, so no sentence break sits in front of "you know what".
+        let said = "So I'm planning to have a meeting tomorrow. Guys, what do you all think will be a good idea? One PM, two p you know what, scratch this. We should have the meeting tomorrow at two p.m. and I would love to be hosting it and everyone should be there."
+        #expect(DiscardCommands.apply(said) == "We should have the meeting tomorrow at two p.m. and I would love to be hosting it and everyone should be there.")
+    }
+
+    @Test func aMidSentencePivotWithNothingRepeatedOnlyDropsTheFragment() {
+        #expect(DiscardCommands.apply("We shipped it Friday. The budget is two p you know what, scratch that. Hire a contractor.") == "We shipped it Friday. Hire a contractor.")
+    }
+
+    @Test func youKnowWhatScratchAllOfThisWorksMidSentenceToo() {
+        #expect(DiscardCommands.apply("Book it for Monday and then you know what scratch all of this. Book it for Friday.") == "Book it for Friday.")
+    }
+
+    @Test func youKnowWhatScratchThatItchIsStillLeftAlone() {
+        let sentence = "You know what, scratch that itch before the meeting."
+        #expect(DiscardCommands.apply(sentence) == sentence)
+    }
+
+    @Test func wordsInFrontOfThePivotThatAreOnlyALeadInAreNotTheThought() {
+        #expect(DiscardCommands.apply("Buy eggs. Buy milk. I mean you know what, scratch that. Buy bread.") == "Buy eggs. Buy bread.")
+    }
+
+    @Test func anEmojiInTheTextDoesNotShiftWhereSentencesAreCut() {
+        #expect(DiscardCommands.apply("Great news 🎉🎉. Buy milk. Scratch that. Buy bread.") == "Great news 🎉🎉. Buy bread.")
+    }
 }
