@@ -18,6 +18,30 @@ import Testing
         #expect(clean("mm okay that works") == "Okay that works.")
     }
 
+    @Test func keepsMillimetresAfterASpelledOutNumber() {
+        let samples = [
+            "The bolt is ten mm wide.",
+            "Cut it to twelve mm.",
+            "Set the pitch to twenty-five mm.",
+            "Allow a gap of five mm on each side.",
+            "The rod is one hundred mm long.",
+            "It moved a few mm to the left.",
+            "The screw is ten m long.",
+            "Give the dimensions in mm.",
+        ]
+        for sample in samples {
+            #expect(clean(sample) == sample, "changed: \(sample.debugDescription) -> \(clean(sample).debugDescription)")
+        }
+        #expect(clean("the bolt is ten mm wide") == "The bolt is ten mm wide.")
+        #expect(clean("trim it to twenty five mm") == "Trim it to twenty five mm.")
+    }
+
+    @Test func stillRemovesAHumNextToANumber() {
+        #expect(clean("We need ten, mm, more chairs.") == "We need ten more chairs.")
+        #expect(clean("It was room 12. Mm, okay.") == "It was room 12. Okay.")
+        #expect(clean("mm ten more minutes") == "Ten more minutes.")
+    }
+
     @Test func removesFillersAndTheirCommas() {
         #expect(clean("Um, I think we should, uh, go to the store.") == "I think we should go to the store.")
         #expect(clean("It works, um.") == "It works.")
@@ -27,6 +51,27 @@ import Testing
     @Test func keepsTheCommaAfterAnIntroWord() {
         #expect(clean("So, um, it works.") == "So, it works.")
         #expect(clean("Well, uh, maybe.") == "Well, maybe.")
+    }
+
+    @Test func keepsTheCommaAfterAnOpeningWordThatIsNotAFunctionWord() {
+        #expect(clean("Oh, um, never mind.") == "Oh, never mind.")
+        #expect(clean("Dana, uh, can you review this?") == "Dana, can you review this?")
+        #expect(clean("Yesterday, um, we shipped it.") == "Yesterday, we shipped it.")
+        #expect(clean("oh, um, never mind") == "Oh, never mind.")
+        #expect(clean("Look, you know, it is fine.") == "Look, it is fine.")
+        // A function word, or a word in the middle of a sentence, has no comma of its own to keep.
+        #expect(clean("I, um, think so.") == "I think so.")
+        #expect(clean("The, uh, report is late.") == "The report is late.")
+        #expect(clean("We went to the store, um, yesterday.") == "We went to the store yesterday.")
+    }
+
+    @Test func aSpokenCommaAfterAFillerLandsOnTheWordBeforeIt() {
+        #expect(clean("the report um comma go on") == "The report, go on.")
+        #expect(clean("we left uh period Then it rained") == "We left. Then it rained.")
+    }
+
+    @Test func removesAFillerThatARepeatedPhraseHidAtFirst() {
+        #expect(clean("Well, you know you know, it works.") == "Well, it works.")
     }
 
     @Test func removesYouKnowOnlyWhenItIsAFiller() {
@@ -124,6 +169,29 @@ import Testing
         #expect(clean("Ask Dr. patel about it.") == "Ask Dr. patel about it.")
     }
 
+    @Test func doesNotCapitalizeAfterLowercaseAbbreviations() {
+        let samples = [
+            "See fig. below for details.",
+            "Smith et al. showed the same effect.",
+            "Use approx. half the amount.",
+            "Compare the results, cf. the appendix.",
+            "Walk down main st. toward the park.",
+            "Apples vs. oranges is a fair comparison.",
+            "Bring pens, paper, etc. for the class.",
+            "Ask Mrs. patel or Ms. okafor about it.",
+            "Item no. 5 is late.",
+        ]
+        for sample in samples {
+            #expect(clean(sample) == sample, "changed: \(sample.debugDescription) -> \(clean(sample).debugDescription)")
+        }
+    }
+
+    @Test func stillCapitalizesAfterAWordThatLooksLikeAnAbbreviation() {
+        #expect(clean("did it break? no. it works") == "Did it break? No. It works.")
+        #expect(clean("i called al. then he left") == "I called al. Then he left.")
+        #expect(clean("i said no. we left") == "I said no. We left.")
+    }
+
     @Test func doesNotCapitalizeAfterAnEllipsis() {
         #expect(clean("Well... maybe it works.") == "Well... maybe it works.")
         #expect(clean("Well\u{2026} maybe it works.") == "Well\u{2026} maybe it works.")
@@ -212,10 +280,33 @@ import Testing
             "um so i i think we should uh go comma if you know it works period new paragraph thanks",
             "th- the plan, you know, is is ready question mark",
             "Hello comma world period",
+            "oh, um, never mind",
+            "the bolt is ten mm wide and long long ago she had a boo boo",
+            "over and over and over again, the the cat the the cat sat",
+            "see fig. below. no. it works. Dana, uh, can you look",
+            "the report um comma go on",
+            "well, well, you know you know comma that works",
         ]
         for sample in samples {
             let once = clean(sample)
-            #expect(clean(once) == once, "not stable: \(sample)")
+            #expect(clean(once) == once, "not stable: \(sample.debugDescription) -> \(once.debugDescription)")
+        }
+    }
+
+    @Test func cleaningCleanSentencesIsAFixedPoint() {
+        for sample in Self.cleanSentences {
+            let once = clean(sample)
+            #expect(clean(once) == once, "not stable: \(sample.debugDescription)")
+        }
+    }
+
+    @Test func cleaningDictationAgainChangesNothing() {
+        var random = SplitMix64(seed: 20_260_502)
+        for _ in 0..<1_000 {
+            let sample = Self.generatedDictation(&random)
+            let once = clean(sample)
+            let twice = clean(once)
+            #expect(twice == once, "not stable: \(sample.debugDescription) -> \(once.debugDescription) -> \(twice.debugDescription)")
         }
     }
 
@@ -224,5 +315,560 @@ import Testing
         let result = try await rules.clean("um hello there my friend")
         #expect(result == "Hello there my friend.")
         #expect(rules.name == "rules")
+    }
+}
+
+// MARK: - Whitespace contract
+
+extension RulesCleanerTests {
+    @Test func keepsIndentationTabsAndBlankLines() {
+        let samples = [
+            "Steps:\n    First, open the file.\n    Second, run the build.",
+            "Notes\n\n\n\nBody after three blank lines.",
+            "Item one.\n\n  - nested item\n  - another item\n\nDone.",
+            "Name:\tDana\nRole:\tEditor",
+            "Column A\tColumn B\tColumn C",
+            "  Indented first line.",
+        ]
+        for sample in samples {
+            #expect(clean(sample) == sample, "changed: \(sample.debugDescription)")
+        }
+    }
+
+    @Test func normalisesLineEndingsAndSpaceRunsOnly() {
+        #expect(clean("Line one.\r\nLine two.") == "Line one.\nLine two.")
+        #expect(clean("Too    many   spaces here.") == "Too many spaces here.")
+        #expect(clean("Ends with spaces.   \nNext line.") == "Ends with spaces.\nNext line.")
+        #expect(clean("Hello there.\n\n") == "Hello there.")
+    }
+
+    @Test func returnsTextWithoutWordsUnchanged() {
+        #expect(clean("...") == "...")
+        #expect(clean("?") == "?")
+        #expect(clean("!!") == "!!")
+        #expect(clean("\u{2026}") == "\u{2026}")
+        #expect(clean("  ...  ") == "...")
+    }
+}
+
+// MARK: - Punctuation words used as ordinary nouns
+
+extension RulesCleanerTests {
+    @Test func keepsPeriodAsAWordWhenItEndsASentence() {
+        let samples = [
+            "It was a long period. Then it ended.",
+            "Sales dipped during the holiday period.",
+            "Put it after the second comma.",
+            "The trial period ended on Friday.",
+            "Expect delays over the next period.",
+            "He asked what the period was for.",
+        ]
+        for sample in samples {
+            #expect(clean(sample) == sample, "changed: \(sample)")
+        }
+    }
+
+    @Test func keepsNewlineAndCommaAsWordsAfterEditingVerbsAndPrepositions() {
+        #expect(clean("strip newline from the string") == "Strip newline from the string.")
+        #expect(clean("split the string on comma") == "Split the string on comma.")
+        #expect(clean("replace each newline with a space") == "Replace each newline with a space.")
+        #expect(clean("remove newline characters") == "Remove newline characters.")
+        #expect(clean("swap period for comma") == "Swap period for comma.")
+        #expect(clean("save it as comma separated values") == "Save it as comma separated values.")
+    }
+
+    @Test func aPunctuationWordWithItsOwnPunctuationIsNotACommand() {
+        #expect(clean("We talked about the placement of comma, and period.") == "We talked about the placement of comma, and period.")
+        #expect(clean("Is that a question mark? It is not.") == "Is that a question mark? It is not.")
+        #expect(clean("She ended it with an exclamation point.") == "She ended it with an exclamation point.")
+        #expect(clean("The car came to a full stop.") == "The car came to a full stop.")
+    }
+
+    @Test func keepsPunctuationWordsThatAreTheObjectOfAnEarlierVerb() {
+        let samples = [
+            "Add one more comma before the quote.",
+            "Please remove the extra comma and the stray period.",
+            "Print newline after each item.",
+            "We expect newline at the end of the file.",
+            "The parser treats newline as whitespace.",
+            "Collapse every newline into a single space.",
+            "Write period at the end of each sentence.",
+        ]
+        for sample in samples {
+            #expect(clean(sample) == sample, "changed: \(sample)")
+        }
+        #expect(clean("add one more comma before the quote") == "Add one more comma before the quote.")
+    }
+
+    @Test func inPunctuatedTextPeriodNeedsACapitalizedWordAfterIt() {
+        #expect(clean("During the Victorian period Queen Victoria reigned.") == "During the Victorian period Queen Victoria reigned.")
+        #expect(clean("Remember the holiday period") == "Remember the holiday period")
+        #expect(clean("We shipped it period Then we left.") == "We shipped it. Then we left.")
+    }
+}
+
+// MARK: - Commands next to words that only sometimes take a noun
+
+extension RulesCleanerTests {
+    @Test func convertsACommandAfterVerbsAndNumbersThatDoNotTakeIt() {
+        #expect(clean("that is exactly what I need period") == "That is exactly what I need.")
+        #expect(clean("we want period Talk soon") == "We want. Talk soon.")
+        #expect(clean("that is the tool we use period") == "That is the tool we use.")
+        #expect(clean("add item one comma item two") == "Add item one, item two.")
+        #expect(clean("step one comma open the file") == "Step one, open the file.")
+        #expect(clean("my favorite color is red comma blue or green") == "My favorite color is red, blue or green.")
+        #expect(clean("take the last one period Thanks") == "Take the last one. Thanks.")
+    }
+
+    @Test func stillLeavesThemAloneWhenTheNounPhraseContinues() {
+        #expect(clean("use period as the delimiter") == "Use period as the delimiter.")
+        #expect(clean("use one comma here") == "Use one comma here.")
+        #expect(clean("put one comma after the name") == "Put one comma after the name.")
+        #expect(clean("start new line when you reach the margin") == "Start new line when you reach the margin.")
+        #expect(clean("we need new line items for the invoice") == "We need new line items for the invoice.")
+        #expect(clean("Put it after the first comma and before the last one.") == "Put it after the first comma and before the last one.")
+    }
+
+    @Test func convertsASecondNewLineRightAfterTheFirst() {
+        #expect(clean("first line new line new line second line") == "First line\n\nSecond line.")
+        #expect(clean("hello there new paragraph new paragraph bye") == "Hello there\n\nBye.")
+        #expect(clean("hello there\nnew line world") == "Hello there\n\nWorld.")
+    }
+}
+
+// MARK: - Repeated names and phrases
+
+extension RulesCleanerTests {
+    @Test func keepsRepeatedProperNouns() {
+        #expect(clean("New York New York is a great song") == "New York New York is a great song")
+        #expect(clean("we went to Bora Bora") == "We went to Bora Bora.")
+        #expect(clean("Mahi Mahi tastes best grilled.") == "Mahi Mahi tastes best grilled.")
+        #expect(clean("They sing Hakuna Matata Hakuna Matata every night.") == "They sing Hakuna Matata Hakuna Matata every night.")
+    }
+
+    @Test func keepsDeliberateTriples() {
+        #expect(clean("ho ho ho merry christmas") == "Ho ho ho merry christmas.")
+        #expect(clean("na na na na goodbye") == "Na na na na goodbye.")
+        #expect(clean("go team go team go team") == "Go team go team go team.")
+    }
+
+    @Test func keepsRepeatedPhrasesWithoutAStutterSignal() {
+        #expect(clean("good morning good morning everyone") == "Good morning good morning everyone.")
+        #expect(clean("thank you thank you so much") == "Thank you thank you so much.")
+    }
+
+    @Test func stillCollapsesRealStutters() {
+        #expect(clean("i i think we should we should call") == "I think we should call.")
+        #expect(clean("the the the server is down again") == "The server is down again.")
+        #expect(clean("I I think so.") == "I think so.")
+        #expect(clean("we need to we need to leave") == "We need to leave.")
+        #expect(clean("send it to the to the team") == "Send it to the team.")
+        #expect(clean("it is it is ready") == "It is ready.")
+    }
+}
+
+// MARK: - Doubled words that are not stutters
+
+extension RulesCleanerTests {
+    @Test func keepsReduplicatedContentWordsInPunctuatedText() {
+        let samples = [
+            "She has a boo boo on her knee.",
+            "Far far away there lived a king.",
+            "Long long ago there was a village.",
+            "It is a pom pom.",
+            "A can can hold five liters.",
+            "Night night, sleep tight.",
+            "Dum dum is a candy.",
+            "The choo choo train left at noon.",
+            "Do do do.",
+        ]
+        for sample in samples {
+            #expect(clean(sample) == sample, "changed: \(sample.debugDescription) -> \(clean(sample).debugDescription)")
+        }
+    }
+
+    @Test func keepsReduplicatedContentWordsInUncasedText() {
+        #expect(clean("she has a boo boo on her knee") == "She has a boo boo on her knee.")
+        #expect(clean("long long ago there was a village") == "Long long ago there was a village.")
+        #expect(clean("a can can hold five liters") == "A can can hold five liters.")
+        #expect(clean("the pom pom fell off") == "The pom pom fell off.")
+    }
+
+    @Test func keepsIdiomsThatRepeatAWordAroundAConnective() {
+        let samples = [
+            "Over and over and over again.",
+            "Day by day by day.",
+            "He fell back time after time after time.",
+            "Step by step by step we climbed.",
+        ]
+        for sample in samples {
+            #expect(clean(sample) == sample, "changed: \(sample.debugDescription) -> \(clean(sample).debugDescription)")
+        }
+        #expect(clean("over and over and over again") == "Over and over and over again.")
+    }
+
+    @Test func collapsesStuttersOnFunctionWordsInAnyCase() {
+        #expect(clean("The the report is late.") == "The report is late.")
+        #expect(clean("It is the the best option.") == "It is the best option.")
+        #expect(clean("She said that we we should go.") == "She said that we should go.")
+        #expect(clean("It was to to late.") == "It was to late.")
+        #expect(clean("i i think the the plan is is solid") == "I think the plan is solid.")
+    }
+
+    @Test func keepsDoubledFunctionWordsThatAreRealWords() {
+        let samples = [
+            "I gave her her keys back.",
+            "They were big fans of The The.",
+            "I do do care about this.",
+        ]
+        for sample in samples {
+            #expect(clean(sample) == sample, "changed: \(sample.debugDescription) -> \(clean(sample).debugDescription)")
+        }
+    }
+
+    @Test func collapsesAStutteredAuxiliaryOnlyRightAfterAPronoun() {
+        #expect(clean("we would would like that") == "We would like that.")
+        #expect(clean("they said we should should wait") == "They said we should wait.")
+        #expect(clean("Would would you mind?") == "Would would you mind?")
+        #expect(clean("Will will come to the party.") == "Will will come to the party.")
+    }
+}
+
+// MARK: - Long runs of one word
+
+extension RulesCleanerTests {
+    /// What cleaning `text` returns and how long it took. A debug build is slow, so the bound is a ceiling for the real thing.
+    private func timed(_ text: String) -> (text: String, seconds: Double) {
+        var result = ""
+        let elapsed = ContinuousClock().measure { result = clean(text) }
+        return (result, Double(elapsed.components.seconds) + Double(elapsed.components.attoseconds) / 1e18)
+    }
+
+    @Test func collapsesAVeryLongRunOfOneWordInLinearTime() {
+        let run = timed(Array(repeating: "the", count: 20_000).joined(separator: " "))
+        #expect(run.text == "The")
+        #expect(run.seconds < 1, "took \(run.seconds) s")
+    }
+
+    @Test func collapsesAnEvenLongerRunWithoutSlowingDownPerWord() {
+        let run = timed(Array(repeating: "the", count: 100_000).joined(separator: " "))
+        #expect(run.text == "The")
+        #expect(run.seconds < 5, "took \(run.seconds) s")
+    }
+
+    @Test func removesAVeryLongRunOfFillersInLinearTime() {
+        let run = timed(Array(repeating: "um", count: 100_000).joined(separator: " "))
+        #expect(run.text == "")
+        #expect(run.seconds < 3, "took \(run.seconds) s")
+    }
+
+    @Test func keepsAVeryLongRunOfAContentWordInLinearTime() {
+        let words = Array(repeating: "boo", count: 20_000)
+        let run = timed(words.joined(separator: " "))
+        #expect(run.text == "Boo " + words.dropFirst().joined(separator: " ") + ".")
+        #expect(run.seconds < 1, "took \(run.seconds) s")
+    }
+
+    @Test func keepsAVeryLongRunOfOnePhraseInLinearTime() {
+        let text = Array(repeating: "we should", count: 10_000).joined(separator: " ") + " call"
+        let run = timed(text)
+        #expect(run.text == "W" + text.dropFirst() + ".")
+        #expect(run.seconds < 1, "took \(run.seconds) s")
+    }
+
+    @Test func collapsesManySeparateStuttersInLinearTime() {
+        let text = Array(repeating: "we should we should go to the the store and", count: 3_000).joined(separator: " ") + " stop"
+        let run = timed(text)
+        #expect(run.text.hasPrefix("We should go to the store and we should go"), "got \(run.text.prefix(60))")
+        #expect(run.seconds < 1, "took \(run.seconds) s")
+    }
+}
+
+// MARK: - Closing punctuation and the word I
+
+extension RulesCleanerTests {
+    @Test func doesNotTurnUncasedStatementsIntoQuestions() {
+        #expect(clean("when you get a chance send me the file") == "When you get a chance send me the file.")
+        #expect(clean("would love to help with that") == "Would love to help with that.")
+        #expect(clean("which is why we left early") == "Which is why we left early.")
+        #expect(clean("should be done by friday") == "Should be done by friday.")
+        #expect(clean("how I fixed it was simple") == "How I fixed it was simple.")
+        #expect(clean("who I hire is my business") == "Who I hire is my business.")
+        #expect(clean("do this before lunch") == "Do this before lunch.")
+        #expect(clean("have it done by friday") == "Have it done by friday.")
+    }
+
+    @Test func closesPlainUncasedQuestionsWithAQuestionMark() {
+        #expect(clean("would you mind sending it") == "Would you mind sending it?")
+        #expect(clean("is the server down") == "Is the server down?")
+        #expect(clean("where are you") == "Where are you?")
+        #expect(clean("how do I fix this") == "How do I fix this?")
+        #expect(clean("what time is it") == "What time is it?")
+        #expect(clean("how many ounces are in a pound") == "How many ounces are in a pound?")
+        #expect(clean("who's coming to lunch") == "Who's coming to lunch?")
+        #expect(clean("do you know where it is") == "Do you know where it is?")
+        #expect(clean("have you seen the report") == "Have you seen the report?")
+        #expect(clean("it works. can you send me the file") == "It works. Can you send me the file?")
+    }
+
+    @Test func onlyAsksWhenTheWholeTextIsOneClause() {
+        #expect(clean("what is the capital of france and why does it matter now") == "What is the capital of france and why does it matter now?")
+        #expect(clean("is it ready, i need it today") == "Is it ready, I need it today.")
+        #expect(clean("first check the logs, is the server down") == "First check the logs, is the server down.")
+    }
+
+    @Test func doesNotCloseCommandsWithAPeriod() {
+        #expect(!clean("git rebase main branch").hasSuffix("."))
+        #expect(!clean("docker compose up -d").hasSuffix("."))
+        #expect(!clean("run the build with --release flag").hasSuffix("."))
+        #expect(clean("npm install left pad").hasSuffix(".") == false)
+    }
+
+    @Test func onlyCapitalizesIWhenItIsThePronoun() {
+        #expect(clean("use i as the index") == "Use i as the index.")
+        #expect(clean("set i to zero") == "Set i to zero.")
+        #expect(clean("the value of i was three") == "The value of i was three.")
+        #expect(clean("loop while i is less than ten") == "Loop while i is less than ten.")
+        #expect(clean("i think i should go") == "I think I should go.")
+        #expect(clean("so do i") == "So do I.")
+        #expect(clean("can i have a minute") == "Can I have a minute?")
+        #expect(clean("maybe i wanted more time") == "Maybe I wanted more time.")
+        #expect(clean("i'm sure i'll finish and i've checked") == "I'm sure I'll finish and I've checked.")
+    }
+
+    @Test func capitalizesIBeforeAnyVerbAtTheStartOfAClause() {
+        #expect(clean("we talked and i ate lunch") == "We talked and I ate lunch.")
+        #expect(clean("when i misplace my keys") == "When I misplace my keys.")
+        #expect(clean("sorry, i met him yesterday") == "Sorry, I met him yesterday.")
+        #expect(clean("print i then print j") == "Print i then print j.")
+        #expect(clean("pass i to the function") == "Pass i to the function.")
+        #expect(clean("the loop runs while i is less than ten") == "The loop runs while i is less than ten.")
+    }
+}
+
+// MARK: - Hyphen stutters and command names
+
+extension RulesCleanerTests {
+    @Test func removesAHyphenatedFirstLetterStutter() {
+        #expect(clean("w-we need to to finish the slides before lunch") == "We need to finish the slides before lunch.")
+        #expect(clean("I think t-they already left.") == "I think they already left.")
+        #expect(clean("W-we should go.") == "We should go.")
+    }
+
+    @Test func keepsRealHyphenatedWords() {
+        let samples = [
+            "The t-test showed a difference.",
+            "Check the D-Day schedule.",
+            "Please write an e-mail to the team.",
+            "We re-read and re-recorded the clips.",
+            "She wore a T-shirt and an X-ray badge.",
+            "The C-corp filed on time.",
+        ]
+        for sample in samples {
+            #expect(clean(sample) == sample, "changed: \(sample)")
+        }
+    }
+
+    @Test func leavesCommandNamesLowercaseAtTheStartOfASentence() {
+        #expect(clean("kubectl get pods") == "kubectl get pods")
+        #expect(clean("git rebase main branch") == "git rebase main branch")
+        #expect(clean("docker compose up. then check the logs") == "docker compose up. Then check the logs.")
+        #expect(clean("run it. git status shows the changes") == "Run it. git status shows the changes")
+        #expect(clean("npm install left pad and restart") == "npm install left pad and restart")
+    }
+
+    @Test func stillCapitalizesCommandNamesUsedAsWords() {
+        #expect(clean("git is a version control system") == "Git is a version control system.")
+        #expect(clean("swift is fast") == "Swift is fast.")
+        #expect(clean("brew is installed") == "Brew is installed.")
+    }
+}
+
+// MARK: - Already-clean text, including words that double as commands
+
+extension RulesCleanerTests {
+    private static let cleanSentences = [
+        // Punctuation and layout words used as ordinary nouns and verbs.
+        "The period of the lease ends in June.",
+        "This period was marked by rapid growth.",
+        "A comma splice joins two sentences incorrectly.",
+        "The comma after the greeting is optional.",
+        "Take the second line and move it down.",
+        "The line at the bakery was long today.",
+        "We drew a straight line between the two points.",
+        "Add a new line at the end of the file.",
+        "The new line of products launches in spring.",
+        "We opened a new account last week.",
+        "A new paragraph begins after the heading.",
+        "That is the point of the exercise.",
+        "The point is that we shipped on time.",
+        "Please stop by my desk this afternoon.",
+        "The bus stop is two blocks away.",
+        "We came to a full stop at the light.",
+        "Mark the box that applies to you.",
+        "Mark will join us for lunch on Friday.",
+        "She asked a question about the invoice.",
+        "Is that a question mark or a comma?",
+        "The exclamation point at the end made it sound angry.",
+        "Use a period to end the sentence.",
+        "The question mark goes at the end of a question.",
+        "Put a comma after each item in the list.",
+        "Press Enter for a new line.",
+        "Line 42 of the file has a typo.",
+        "It was a long period. Then it ended.",
+        "Sales dipped during the holiday period.",
+        "Put it after the second comma.",
+        "Over the next period we will hire three people.",
+        // Repeated proper nouns and deliberate repeats.
+        "New York New York is a great song.",
+        "We went to Bora Bora last summer.",
+        "Mahi Mahi is on the menu tonight.",
+        "Walla Walla is a city in Washington.",
+        "Hawaii and Bora Bora are both beautiful.",
+        "Hey hey hey, that's my seat!",
+        "He said, \"Wait, wait, wait.\" Then he left.",
+        "It was very, very cold.",
+        "Yes, yes, of course.",
+        "They said bye bye and left.",
+        "I think that that is correct.",
+        // Code, paths, flags and identifiers.
+        "Run kubectl get pods -n staging to list them.",
+        "Set LOG_LEVEL=debug before you start the server.",
+        "See src/main.swift for the entry point.",
+        "Call fetchUser(id) and check the result.",
+        "The file config.json lives in ~/.config/flow.",
+        "Use the --verbose flag for more output.",
+        "The loop variable i runs from 0 to 9.",
+        "Version 1.2.3 was released on 2024-05-01.",
+        "Email me at dana@example.com or call 555-0100.",
+        // Questions, openers and short forms.
+        "Can you send me the file?",
+        "Would you like some tea?",
+        "When is the meeting?",
+        "How many ounces are in a pound?",
+        "Which is why we left early.",
+        "Would love to help with that.",
+        "Should be fine by tomorrow.",
+        "Thanks, that works for me.",
+        "Hello, world.",
+        "Step one: open the file. Step two: run the build.",
+        "Item one, item two, and item three.",
+        "I'm sure it's fine, but let's check.",
+        "Mr. Patel will arrive at 3 p.m. today.",
+        "The U.S. economy grew last year.",
+        "Don't stop believing.",
+        "What a great day!",
+        "Anyway, back to the point.",
+        "First, we wash. Second, we rinse.",
+        "The city of Winston-Salem is in North Carolina.",
+        "Pre- and post-processing both run.",
+        // Doubled words, units and abbreviations that are not mistakes.
+        "She has a boo boo on her knee.",
+        "Far far away there lived a king.",
+        "Long long ago there was a village.",
+        "It is a pom pom.",
+        "A can can hold five liters.",
+        "Night night, sleep tight.",
+        "Dum dum is a candy.",
+        "Over and over and over again.",
+        "Day by day by day.",
+        "Do do do.",
+        "I gave her her keys back.",
+        "The bolt is ten mm wide.",
+        "See fig. below for details.",
+        "Smith et al. showed the same effect.",
+        "Oh, never mind.",
+        "Dana, can you review this?",
+        // Layout.
+        "Dear team,\n\nThe release is ready.\n\nBest regards,\nDana",
+        "Agenda\n\n1. Budget review.\n2. Hiring plan.\n3. Open questions.",
+    ]
+
+    @Test func leavesManyMoreAlreadyCleanSentencesUnchanged() {
+        #expect(Self.cleanSentences.count >= 40)
+        for sample in Self.cleanSentences {
+            #expect(clean(sample) == sample, "changed: \(sample.debugDescription) -> \(clean(sample).debugDescription)")
+        }
+    }
+
+    @Test func leavesGeneratedPunctuatedSentencesUnchanged() {
+        var random = SplitMix64(seed: 20_260_501)
+        for _ in 0..<400 {
+            let sample = Self.generatedText(&random)
+            #expect(clean(sample) == sample, "changed: \(sample.debugDescription) -> \(clean(sample).debugDescription)")
+        }
+    }
+
+    private static func generatedText(_ random: inout SplitMix64) -> String {
+        let subjects = [
+            "The team", "My manager", "Dana", "Marco and Sofia", "The editor", "She", "They", "Our new line of products",
+            "The comma key", "The period of rest", "Everyone at the new office", "Priya", "The question mark", "A full stop",
+        ]
+        let predicates = [
+            "reviewed the draft", "added a comma after the greeting", "spent the holiday period at home",
+            "asked about the exclamation point", "moved to New York New York", "visited Bora Bora", "split the line in two",
+            "marked the new paragraph", "forgot the period at the end", "waited at the bus stop", "said no, no, no",
+            "pressed the new line key", "ran kubectl get pods", "opened config.json", "checked the loop variable i",
+            "used the --verbose flag", "called fetchUser(id)", "read src/main.swift", "stopped at the second comma",
+            "found a long period of silence", "typed a question mark", "left a stop sign on the desk",
+        ]
+        let tails = ["", " on Monday", " before lunch", " without any trouble", " this week", " at 3:30 PM", " in Q3"]
+        let questions = [
+            "Did the team finish the draft", "Can you send the file", "Is the new line of products ready",
+            "Would Dana review it", "Where is the period key", "How many commas are in the list",
+        ]
+        func pick(_ values: [String], _ random: inout SplitMix64) -> String { values[Int(random.next() % UInt64(values.count))] }
+
+        var sentences: [String] = []
+        for _ in 0..<(1 + Int(random.next() % 3)) {
+            if random.next() % 4 == 0 {
+                sentences.append(pick(questions, &random) + pick(tails, &random) + "?")
+            } else {
+                let mark = random.next() % 6 == 0 ? "!" : "."
+                sentences.append(pick(subjects, &random) + " " + pick(predicates, &random) + pick(tails, &random) + mark)
+            }
+        }
+        let separator = [" ", " ", "\n", "\n\n"][Int(random.next() % 4)]
+        return sentences.joined(separator: separator)
+    }
+}
+
+extension RulesCleanerTests {
+    /// Dictation with fillers, stutters, doubled words, units and abbreviations, cased or not. It has no spoken
+    /// punctuation: whether "period" is a command can depend on the words around it, which the first pass changes.
+    fileprivate static func generatedDictation(_ random: inout SplitMix64) -> String {
+        let pieces = [
+            "um", "uh", "hmm", "mm", "you know", "like", "i", "i", "we", "the", "the", "a", "to", "to", "is", "and", "so", "that",
+            "would", "can", "do", "boo boo", "far far", "night night", "think", "should", "go", "plan", "report", "river",
+            "ten", "twelve", "5", "mm", "fig.", "etc.", "vs.", "al.", "no.", "Dana", "Oh,", "well,", "I'm", "it's", "what",
+            "how", "over and over", "by day", "th-", "w-we",
+        ]
+        let count = 3 + Int(random.next() % 14)
+        var words: [String] = []
+        for _ in 0..<count {
+            let piece = pieces[Int(random.next() % UInt64(pieces.count))]
+            words.append(piece)
+            // A repeat of the last piece, so doubled and tripled words are common.
+            if random.next() % 5 == 0 { words.append(piece) }
+        }
+        var text = words.joined(separator: " ")
+        if random.next() % 3 == 0 { text = text.prefix(1).uppercased() + text.dropFirst() }
+        if random.next() % 3 == 0 { text += "." }
+        return text
+    }
+}
+
+/// A small seedable generator, so the fuzz test is reproducible.
+private struct SplitMix64 {
+    var state: UInt64
+
+    init(seed: UInt64) { state = seed }
+
+    mutating func next() -> UInt64 {
+        state &+= 0x9E37_79B9_7F4A_7C15
+        var z = state
+        z = (z ^ (z >> 30)) &* 0xBF58_476D_1CE4_E5B9
+        z = (z ^ (z >> 27)) &* 0x94D0_49BB_1331_11EB
+        return z ^ (z >> 31)
     }
 }

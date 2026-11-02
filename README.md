@@ -2,7 +2,7 @@
 
 Hold **Fn**, speak, let go: your words appear at the cursor in any Mac app. Speech recognition runs on this Mac (Parakeet on the Neural Engine), so audio never leaves it.
 
-Early work in progress. Right now Flow pastes the raw transcript; text cleanup is next.
+Early work in progress. Flow cleans the transcript with fast rules (fillers, stutters, spoken punctuation like "comma" and "new paragraph"), and you can paste the uncleaned version from the menu. AI-assisted self-correction ("Tuesday, no wait, Wednesday") is built but switched off until its safety check has had a final review.
 
 ## Build
 

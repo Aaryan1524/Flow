@@ -45,4 +45,43 @@ import Testing
         #expect(WER.percentile(values, 0.95) == 10)
         #expect(WER.percentile([], 0.5) == 0)
     }
+
+    @Test func wordsKeepTheLayoutFactsTheGuardNeeds() {
+        let words = WER.words("Dear Team, no, Wednesday morning. Next up")
+        #expect(words.map(\.text) == ["dear", "team", "no", "wednesday", "morning", "next", "up"])
+        #expect(words[2].afterComma)
+        #expect(words[3].afterComma && !words[4].afterComma)
+        #expect(words[0].capitalized && words[1].capitalized && !words[2].capitalized)
+        #expect(words[0].startsSentence && words[5].startsSentence && !words[1].startsSentence)
+    }
+
+    @Test func wordsKeepTheirCapitalsAndTheMarksBeforeThem() {
+        let lexed = WER.lexed("Dear Dana,\n\nThe NASA team is ready. Go?", numberAware: false)
+        #expect(lexed.words.map(\.allCaps) == [false, false, false, true, false, false, false, false])
+        #expect(lexed.words.map(\.capitalized) == [true, true, true, true, false, false, false, true])
+        #expect(lexed.words[1].marksBefore.isEmpty)
+        #expect(lexed.words[2].marksBefore == [.comma, .newline])
+        #expect(lexed.words[7].marksBefore == [.period])
+        #expect(lexed.trailingMarks == [.question])
+        #expect(WER.lexed("it ends here.", numberAware: false).trailingMarks == [.period])
+        #expect(WER.lexed("no marks", numberAware: false).trailingMarks.isEmpty)
+        // A dot that closes an abbreviation is not a sentence mark.
+        #expect(WER.lexed("at 3:30 p.m. today", numberAware: true).words.map(\.marksBefore.rawValue) == [0, 0, 0, 0])
+    }
+
+    @Test func aCurrencySignComesAfterTheScaleWordsAsItIsSpoken() {
+        #expect(WER.words("we raised $10 million", numberAware: true).map(\.text) == ["we", "raised", "10", "million", "dollars"])
+        #expect(WER.words("it cost $49 today", numberAware: true).map(\.text) == ["it", "cost", "49", "dollars", "today"])
+        #expect(WER.words("it cost $1.5 billion", numberAware: true).map(\.text) == ["it", "cost", "1.5", "billion", "dollars"])
+    }
+
+    @Test func numberAwareWordsKeepNumbersWholeAndSpellOutSymbols() {
+        let text = "at 3:30 for $1,249.99 and 15% on v2.4.1"
+        #expect(WER.words(text, numberAware: true).map(\.text) == ["at", "3:30", "for", "1,249.99", "dollars", "and", "15", "percent", "on", "v2.4.1"])
+        // tokens() is unchanged: numbers still split on punctuation
+        #expect(WER.tokens(text) == ["at", "3", "30", "for", "1", "249", "99", "and", "15", "on", "v2", "4", "1"])
+        #expect(WER.words("5. Next", numberAware: true).map(\.text) == ["5", "next"])
+        // speech recognisers write "3: 30" for "3:30"
+        #expect(WER.words("at 3: 30 p.m.", numberAware: true).map(\.text) == ["at", "3:30", "pm"])
+    }
 }
