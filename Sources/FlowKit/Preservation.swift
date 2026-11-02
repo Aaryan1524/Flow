@@ -20,7 +20,7 @@ public enum Preservation {
 
         let outputTokens = CleanupGuard.prepare(output)
         let outputWords = Set(outputTokens.filter { $0.number == nil }.map(\.text))
-        let inputTokens = CleanupGuard.analyze(input, matching: outputWords)
+        let inputTokens = CleanupGuard.analyze(input, matching: outputWords, strictFillers: true)
         let expectation = CleanupGuard.expectation(from: inputTokens, cleaned: output)
 
         // Words are compared as a multiset, so losing one of several "the" shows up.

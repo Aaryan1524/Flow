@@ -119,6 +119,14 @@ import Testing
         #expect(Preservation.check(input: "um the the release is uh ready, you know,", output: "The release is ready.").isClean)
     }
 
+    @Test func aYouKnowWithoutCommasIsNotAFillerHere() {
+        // The guard tolerates this one, since a model has no commas to go by; a loss report does not.
+        let report = Preservation.check(input: "so you know we need more time", output: "So we need more time.")
+        #expect(report.droppedWords == ["you", "know"])
+        let like = Preservation.check(input: "it takes, you know, like a couple of seconds", output: "It takes a couple of seconds.")
+        #expect(like.droppedWords == ["like"])
+    }
+
     @Test func aBareYouKnowIsNotAFiller() {
         let report = Preservation.check(input: "do you know the answer", output: "Do the answer?")
         #expect(report.droppedWords == ["you", "know"])

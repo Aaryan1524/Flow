@@ -214,8 +214,10 @@ public struct CleanupGuard: Sendable {
     /// The input of a cleaner, ready to compare with `output`: split words rejoined to match its spelling
     /// ("p m" meets "pm"), fillers and numbers marked, and the spoken corrections found.
     /// `before` and `after` are the dictation around the text when it is one chunk of a longer one.
-    static func analyze(_ text: String, matching outputWords: Set<String>, before: String = "", after: String = "") -> [Token] {
-        let main = collapsingNumbers(markingFillers(joinSplitWords(lex(text), matching: outputWords)))
+    static func analyze(
+        _ text: String, matching outputWords: Set<String>, before: String = "", after: String = "", strictFillers: Bool = false
+    ) -> [Token] {
+        let main = collapsingNumbers(markingFillers(joinSplitWords(lex(text), matching: outputWords), strict: strictFillers))
         func context(_ text: String) -> [Token] { text.isEmpty ? [] : prepare(text) }
         let leading = Array(context(before).suffix(contextWords))
         let trailing = Array(context(after).prefix(contextWords))
@@ -243,7 +245,9 @@ public struct CleanupGuard: Sendable {
 
     /// Marks um/uh, and the "you know" and "like" a speaker drops between commas. A bare "you know" or "like"
     /// is ordinary language ("do you know the answer", "I like it") and must survive.
-    static func markingFillers(_ tokens: [Token]) -> [Token] {
+    /// `strict` marks nothing beyond that: the guard also lets "so you know we need time" lose its "you know",
+    /// since the model has no commas to go by, but a loss report should not.
+    static func markingFillers(_ tokens: [Token], strict: Bool = false) -> [Token] {
         var result = tokens
         func endsClause(at next: Int) -> Bool {
             next >= tokens.count || tokens[next].afterComma || tokens[next].startsSentence
@@ -252,7 +256,7 @@ public struct CleanupGuard: Sendable {
             let text = tokens[i].text
             if fillers.contains(text) {
                 result[i].isFiller = true
-            } else if text == "like", tokens[i].afterComma, endsClause(at: i + 1) || (i > 0 && result[i - 1].isFiller) {
+            } else if text == "like", tokens[i].afterComma, endsClause(at: i + 1) || (!strict && i > 0 && result[i - 1].isFiller) {
                 // ", like," and "you know, like": the comma before it marks it as speech filler.
                 result[i].isFiller = true
             } else if text == "you", i + 1 < tokens.count, tokens[i + 1].text == "know" {
@@ -261,7 +265,7 @@ public struct CleanupGuard: Sendable {
                 let commaBounded = tokens[i].afterComma && endsClause(at: i + 2)
                 let afterOpener = leader.map(discourseOpeners.contains) == true && follower.map(youKnowObjects.contains) != true
                 let sentenceFinal = endsClause(at: i + 2) && leader.map(youKnowLeaders.contains) != true
-                if commaBounded || afterOpener || sentenceFinal {
+                if commaBounded || (!strict && (afterOpener || sentenceFinal)) {
                     result[i].isFiller = true
                     result[i + 1].isFiller = true
                 }
