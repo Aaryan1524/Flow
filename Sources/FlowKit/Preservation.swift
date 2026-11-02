@@ -44,7 +44,14 @@ public enum Preservation {
     static func identifiers(in text: String) -> [String] {
         var found: [String] = []
         var seen = Set<String>()
-        for piece in text.split(whereSeparator: \.isWhitespace) {
+        let plain = text.utf8.allSatisfy { $0 < 128 }
+        let pieces: [Substring] =
+            plain
+            ? text.utf8.split(whereSeparator: { $0 == 32 || ($0 >= 9 && $0 <= 13) }).map { Substring($0) }
+            : text.split(whereSeparator: \.isWhitespace)
+        for piece in pieces {
+            // Most words are plain lower case letters, which are never an identifier; skip them without trimming.
+            if plain, !piece.utf8.contains(where: { $0 == 95 || ($0 >= 48 && $0 <= 57) || ($0 >= 65 && $0 <= 90) }) { continue }
             let token = piece.trimmingCharacters(in: CharacterSet(charactersIn: ".,;:!?()[]{}\"'`"))
             guard token.count > 1, !seen.contains(token) else { continue }
             // "Twenty-Five" and "Jean-Luc" are capitalised words, not camelCase.
@@ -289,8 +296,11 @@ struct SpokenNumber: Equatable, Sendable {
             readings.formUnion(yearAndTimeReadings(pieces))
             if let sequence = digitSequence(pieces) { readings.insert(sequence) }
             if let scaled = digitsTimesScales(pieces) { readings.insert(scaled) }
-            // Words that are not one number ("five ten") are a list: any of its numbers will do.
-            if value == nil { readings.formUnion(parts) }
+            // Words that are not one number ("five ten") are a list: any of its numbers will do. A run that reads
+            // as a time or a year ("three thirty") is not: 3:30 is not 3:00, and ten thirty is not 10.
+            if value == nil && readings.isEmpty { readings.formUnion(parts) }
+            // Digit groups written apart ("555-1234", "5 10 15") are the number run together or any one of them.
+            if pieces.allSatisfy({ if case .digits = $0 { true } else { false } }) { readings.formUnion(parts) }
         }
         if readings.isEmpty { readings = parts }
         return SpokenNumber(display: display, readings: readings, parts: parts)
@@ -359,7 +369,7 @@ struct SpokenNumber: Equatable, Sendable {
         return readings
     }
 
-    /// "one two three" read digit by digit is 123.
+    /// "one two three" read digit by digit is 123, and "555-1234" is the digits of a phone number.
     static func digitSequence(_ pieces: [Piece]) -> String? {
         guard pieces.count >= 2 else { return nil }
         var digits = ""
@@ -367,7 +377,7 @@ struct SpokenNumber: Equatable, Sendable {
             switch piece {
             case .unit(let value): digits += String(value)
             case .oh: digits += "0"
-            case .digits(_, let integer?) where integer < 10: digits += String(integer)
+            case .digits(_, let integer?): digits += String(integer)
             default: return nil
             }
         }

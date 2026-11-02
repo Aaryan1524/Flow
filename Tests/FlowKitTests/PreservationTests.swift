@@ -120,7 +120,7 @@ import Testing
     }
 
     @Test func aYouKnowWithoutCommasIsNotAFillerHere() {
-        // The guard tolerates this one, since a model has no commas to go by; a loss report does not.
+        // Only the "like" right after a comma-bounded "you know," is a filler to the guard and not to a loss report.
         let report = Preservation.check(input: "so you know we need more time", output: "So we need more time.")
         #expect(report.droppedWords == ["you", "know"])
         let like = Preservation.check(input: "it takes, you know, like a couple of seconds", output: "It takes a couple of seconds.")
