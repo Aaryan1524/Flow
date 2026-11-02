@@ -422,13 +422,30 @@ public struct RulesCleaner: TextCleaner {
         tokens = kept
     }
 
+    private static let cardinals: Set<String> = [
+        "zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve",
+        "thirteen", "fourteen", "fifteen", "sixteen", "seventeen", "eighteen", "nineteen", "twenty", "thirty", "forty",
+        "fifty", "sixty", "seventy", "eighty", "ninety", "hundred", "thousand", "million", "half",
+    ]
+    /// Words that put a measurement unit right behind them: "a few mm", "a couple of mm", "measured in mm".
+    private static let beforeUnit: Set<String> = ["few", "several", "couple", "of", "in", "per"]
+
+    /// Whether the word is a number, spelled or in digits, or reads as one in front of a unit.
+    private static func isUnitLead(_ token: Token) -> Bool {
+        guard token.isWord, token.trail.isEmpty else { return false }
+        if token.core.contains(where: \.isNumber) { return true }
+        let key = token.key
+        let parts = key.split(separator: "-")
+        return beforeUnit.contains(key) || (!parts.isEmpty && parts.allSatisfy { cardinals.contains(String($0)) })
+    }
+
     /// Number of tokens at `index` that form a filler, or 0.
     private static func fillerSpan(_ tokens: [Token], at index: Int, previous: Token?) -> Int {
         let token = tokens[index]
         guard token.lead.isEmpty else { return 0 }
         if isFillerWord(token.core) {
-            // "10 mm" is a unit, not a hum.
-            if token.key.allSatisfy({ $0 == "m" }), previous?.core.contains(where: \.isNumber) == true { return 0 }
+            // "10 mm" and "ten mm wide" are a unit, not a hum.
+            if token.key.allSatisfy({ $0 == "m" }), let previous, isUnitLead(previous) { return 0 }
             return 1
         }
         let afterComma = previous?.isWord == true && previous?.trail == ","

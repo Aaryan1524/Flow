@@ -18,6 +18,30 @@ import Testing
         #expect(clean("mm okay that works") == "Okay that works.")
     }
 
+    @Test func keepsMillimetresAfterASpelledOutNumber() {
+        let samples = [
+            "The bolt is ten mm wide.",
+            "Cut it to twelve mm.",
+            "Set the pitch to twenty-five mm.",
+            "Allow a gap of five mm on each side.",
+            "The rod is one hundred mm long.",
+            "It moved a few mm to the left.",
+            "The screw is ten m long.",
+            "Give the dimensions in mm.",
+        ]
+        for sample in samples {
+            #expect(clean(sample) == sample, "changed: \(sample.debugDescription) -> \(clean(sample).debugDescription)")
+        }
+        #expect(clean("the bolt is ten mm wide") == "The bolt is ten mm wide.")
+        #expect(clean("trim it to twenty five mm") == "Trim it to twenty five mm.")
+    }
+
+    @Test func stillRemovesAHumNextToANumber() {
+        #expect(clean("We need ten, mm, more chairs.") == "We need ten more chairs.")
+        #expect(clean("It was room 12. Mm, okay.") == "It was room 12. Okay.")
+        #expect(clean("mm ten more minutes") == "Ten more minutes.")
+    }
+
     @Test func removesFillersAndTheirCommas() {
         #expect(clean("Um, I think we should, uh, go to the store.") == "I think we should go to the store.")
         #expect(clean("It works, um.") == "It works.")
