@@ -443,6 +443,56 @@ extension RulesCleanerTests {
     }
 }
 
+// MARK: - Long runs of one word
+
+extension RulesCleanerTests {
+    /// What cleaning `text` returns and how long it took. A debug build is slow, so the bound is a ceiling for the real thing.
+    private func timed(_ text: String) -> (text: String, seconds: Double) {
+        var result = ""
+        let elapsed = ContinuousClock().measure { result = clean(text) }
+        return (result, Double(elapsed.components.seconds) + Double(elapsed.components.attoseconds) / 1e18)
+    }
+
+    @Test func collapsesAVeryLongRunOfOneWordInLinearTime() {
+        let run = timed(Array(repeating: "the", count: 20_000).joined(separator: " "))
+        #expect(run.text == "The")
+        #expect(run.seconds < 1, "took \(run.seconds) s")
+    }
+
+    @Test func collapsesAnEvenLongerRunWithoutSlowingDownPerWord() {
+        let run = timed(Array(repeating: "the", count: 100_000).joined(separator: " "))
+        #expect(run.text == "The")
+        #expect(run.seconds < 5, "took \(run.seconds) s")
+    }
+
+    @Test func removesAVeryLongRunOfFillersInLinearTime() {
+        let run = timed(Array(repeating: "um", count: 100_000).joined(separator: " "))
+        #expect(run.text == "")
+        #expect(run.seconds < 3, "took \(run.seconds) s")
+    }
+
+    @Test func keepsAVeryLongRunOfAContentWordInLinearTime() {
+        let words = Array(repeating: "boo", count: 20_000)
+        let run = timed(words.joined(separator: " "))
+        #expect(run.text == "Boo " + words.dropFirst().joined(separator: " ") + ".")
+        #expect(run.seconds < 1, "took \(run.seconds) s")
+    }
+
+    @Test func keepsAVeryLongRunOfOnePhraseInLinearTime() {
+        let text = Array(repeating: "we should", count: 10_000).joined(separator: " ") + " call"
+        let run = timed(text)
+        #expect(run.text == "W" + text.dropFirst() + ".")
+        #expect(run.seconds < 1, "took \(run.seconds) s")
+    }
+
+    @Test func collapsesManySeparateStuttersInLinearTime() {
+        let text = Array(repeating: "we should we should go to the the store and", count: 3_000).joined(separator: " ") + " stop"
+        let run = timed(text)
+        #expect(run.text.hasPrefix("We should go to the store and we should go"), "got \(run.text.prefix(60))")
+        #expect(run.seconds < 1, "took \(run.seconds) s")
+    }
+}
+
 // MARK: - Closing punctuation and the word I
 
 extension RulesCleanerTests {

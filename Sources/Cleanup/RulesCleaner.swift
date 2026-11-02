@@ -393,33 +393,39 @@ public struct RulesCleaner: TextCleaner {
     }
 
     private func removeFillers(_ tokens: inout [Token]) {
+        // Built into a new array: removing each filler in place would make a long run of them quadratic.
+        var kept: [Token] = []
+        kept.reserveCapacity(tokens.count)
         var i = 0
         while i < tokens.count {
-            guard tokens[i].isWord else { i += 1; continue }
-            let span = Self.fillerSpan(tokens, at: i)
-            guard span > 0 else { i += 1; continue }
+            let span = tokens[i].isWord ? Self.fillerSpan(tokens, at: i, previous: kept.last) : 0
+            guard span > 0 else {
+                kept.append(tokens[i])
+                i += 1
+                continue
+            }
 
             let punctuation = tokens[i + span - 1].trail
             let hasNext = i + span < tokens.count && tokens[i + span].isWord
-            if i > 0, tokens[i - 1].isWord {
-                let previous = i - 1
+            if let previous = kept.last, previous.isWord {
+                let last = kept.count - 1
                 if Self.endsSentence(punctuation) {
-                    if !Self.endsSentence(tokens[previous].trail) { tokens[previous].trail = punctuation }
+                    if !Self.endsSentence(previous.trail) { kept[last].trail = punctuation }
                 } else if !hasNext {
-                    if tokens[previous].trail == "," { tokens[previous].trail = "" }
-                } else if tokens[previous].trail == ",", punctuation == ",", !Self.introWords.contains(tokens[previous].key) {
-                    tokens[previous].trail = ""
+                    if previous.trail == "," { kept[last].trail = "" }
+                } else if previous.trail == ",", punctuation == ",", !Self.introWords.contains(previous.key) {
+                    kept[last].trail = ""
                 }
             }
-            tokens.removeSubrange(i..<(i + span))
+            i += span
         }
+        tokens = kept
     }
 
     /// Number of tokens at `index` that form a filler, or 0.
-    private static func fillerSpan(_ tokens: [Token], at index: Int) -> Int {
+    private static func fillerSpan(_ tokens: [Token], at index: Int, previous: Token?) -> Int {
         let token = tokens[index]
         guard token.lead.isEmpty else { return 0 }
-        let previous = index > 0 ? tokens[index - 1] : nil
         if isFillerWord(token.core) {
             // "10 mm" is a unit, not a hum.
             if token.key.allSatisfy({ $0 == "m" }), previous?.core.contains(where: \.isNumber) == true { return 0 }
@@ -492,33 +498,56 @@ public struct RulesCleaner: TextCleaner {
             i += 1
         }
 
-        // Repeated blocks of up to three words.
-        var changed = true
-        while changed {
-            changed = false
-            var start = 0
-            while start < tokens.count {
-                var collapsed = false
-                for length in stride(from: 3, through: 1, by: -1) where start + 2 * length <= tokens.count {
-                    guard Self.isStutter(tokens, start: start, length: length) else { continue }
-
-                    // Keep the second copy, which carries the punctuation, but keep a sentence-initial capital.
-                    let wasCapitalized = tokens[start].core.first?.isUppercase == true
-                    tokens.removeSubrange(start..<(start + length))
-                    if wasCapitalized, Self.isPlainLowercase(tokens[start].core) {
-                        tokens[start].core = Self.capitalizingFirst(tokens[start].core)
-                    }
-                    collapsed = true
-                    changed = true
-                    break
-                }
-                if !collapsed { start += 1 }
-            }
+        // Repeated blocks of up to three words. Each pass is linear; a second one is only needed when a removal puts two
+        // more copies side by side ("the cat the the cat"), so the number of passes is capped.
+        for _ in 0..<Self.maxCollapsePasses {
+            guard Self.collapseRepeatedBlocks(&tokens) else { break }
         }
     }
 
+    private static let maxCollapsePasses = 6
+    private static let longestRepeatedBlock = 3
+
+    /// One left-to-right pass that drops the first copy of every repeated block, keeping the second, which carries
+    /// the punctuation. Returns whether anything was dropped.
+    ///
+    /// The tokens are copied into a new array instead of removed in place, and a block is judged from the few tokens
+    /// around it, so a word repeated thousands of times costs time in proportion to its length, not its square.
+    private static func collapseRepeatedBlocks(_ tokens: inout [Token]) -> Bool {
+        var kept: [Token] = []
+        kept.reserveCapacity(tokens.count)
+        var position = 0
+        var changed = false
+        scan: while position < tokens.count {
+            if tokens[position].isWord, repeatsSoon(tokens, at: position) {
+                for length in stride(from: longestRepeatedBlock, through: 1, by: -1) where position + 2 * length <= tokens.count {
+                    guard isStutter(tokens, start: position, length: length, previous: kept.last) else { continue }
+                    let wasCapitalized = tokens[position].core.first?.isUppercase == true
+                    position += length
+                    // Keep a sentence-initial capital.
+                    if wasCapitalized, isPlainLowercase(tokens[position].core) {
+                        tokens[position].core = capitalizingFirst(tokens[position].core)
+                    }
+                    changed = true
+                    continue scan
+                }
+            }
+            kept.append(tokens[position])
+            position += 1
+        }
+        if changed { tokens = kept }
+        return changed
+    }
+
+    /// A cheap test that the word at `index` comes back within a block's reach, so most tokens skip the full check.
+    private static func repeatsSoon(_ tokens: [Token], at index: Int) -> Bool {
+        let key = tokens[index].key
+        return (1...longestRepeatedBlock).contains { index + $0 < tokens.count && tokens[index + $0].key == key }
+    }
+
     /// Whether the block of `length` words at `start` is immediately repeated by a stutter rather than on purpose.
-    private static func isStutter(_ tokens: [Token], start: Int, length: Int) -> Bool {
+    /// `previous` is the token before the block, which may already have left `tokens`.
+    private static func isStutter(_ tokens: [Token], start: Int, length: Int, previous: Token?) -> Bool {
         let first = tokens[start..<(start + length)]
         let second = tokens[(start + length)..<(start + 2 * length)]
         guard first.allSatisfy(\.isWord), second.allSatisfy(\.isWord) else { return false }
@@ -533,7 +562,7 @@ public struct RulesCleaner: TextCleaner {
             guard length == 1, lastTrail == ",", commaStutterWords.contains(first[start].key) else { return false }
         }
 
-        if length == 1 { return isSingleWordStutter(tokens, at: start, trailed: !lastTrail.isEmpty) }
+        if length == 1 { return isSingleWordStutter(tokens, at: start, previous: previous, trailed: !lastTrail.isEmpty) }
 
         // A repeated phrase is a stutter when it starts on a function word ("we should we should"); "New York New
         // York" and "good morning good morning" are not.
@@ -541,23 +570,22 @@ public struct RulesCleaner: TextCleaner {
         // Exactly two copies. A third one, whole or partial, makes it a chain said on purpose: "go team go team go
         // team", "over and over and over again", "day by day by day".
         let end = start + 2 * length
-        let continuesBefore = start > 0 && sameWord(tokens[start - 1], tokens[start + length - 1])
+        let continuesBefore = previous.map { sameWord($0, tokens[start + length - 1]) } ?? false
         let continuesAfter = end < tokens.count && sameWord(tokens[end], tokens[end - length])
         return !continuesBefore && !continuesAfter
     }
 
     /// Whether the doubled word at `index` is a stutter. Only a function word can be: a doubled content word is
     /// reduplication or emphasis ("boo boo", "far far away", "Night night") however it is cased.
-    private static func isSingleWordStutter(_ tokens: [Token], at index: Int, trailed: Bool) -> Bool {
+    private static func isSingleWordStutter(_ tokens: [Token], at index: Int, previous: Token?, trailed: Bool) -> Bool {
         let key = normalizedKey(tokens[index])
         if !trailed, legitimateDoubles.contains(key) { return false }
         // "The The" is a name; only the pronoun is capitalized wherever it stands.
         let isPronounI = key == "i" || key.hasPrefix("i'")
         if tokens[index + 1].core.first?.isUppercase == true, !isPronounI { return false }
         if stutterWords.contains(key) { return true }
-        guard auxiliaryWords.contains(key), index > 0 else { return false }
-        let before = tokens[index - 1]
-        return before.isWord && before.trail.isEmpty && personalPronouns.contains(normalizedKey(before))
+        guard auxiliaryWords.contains(key), let previous else { return false }
+        return previous.isWord && previous.trail.isEmpty && personalPronouns.contains(normalizedKey(previous))
     }
 
     private static func sameWord(_ a: Token, _ b: Token) -> Bool {
