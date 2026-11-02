@@ -44,6 +44,9 @@ struct MenuContent: View {
             if DictationController.aiCleanupAvailable { Text("Rules + AI (experimental)").tag("rulesAndAI") }
         }
 
+        Text("Dictionary: \(controller.dictionarySummary)")
+        Button("Edit my dictionary…") { controller.editDictionary() }
+
         Button("Paste last transcript") { controller.pasteLastTranscript() }
             .disabled(controller.lastTranscript.isEmpty)
         Button("Paste raw version of last dictation") { controller.pasteLastRaw() }
