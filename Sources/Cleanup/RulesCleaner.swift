@@ -54,6 +54,8 @@ public struct RulesCleaner: TextCleaner {
         applySpokenCommands(&tokens)
         removeFillers(&tokens)
         collapseStutters(&tokens)
+        // Collapsing "you know you know," leaves a filler that the first pass could not see.
+        removeFillers(&tokens)
         applyDictionary(&tokens)
         fixPronounI(&tokens)
         capitalizeSentences(&tokens)
@@ -255,8 +257,16 @@ public struct RulesCleaner: TextCleaner {
             }
             switch command {
             case .mark(let mark, let words):
-                tokens[i - 1].trail = mark
-                tokens.removeSubrange(i..<(i + words))
+                // A hesitation right before the command ("report um comma") goes; the mark belongs to the word before it.
+                var target = i - 1
+                if target > 0, tokens[target - 1].isWord, tokens[target - 1].trail.isEmpty,
+                    Self.fillerSpan(tokens, at: target, previous: tokens[target - 1]) == 1
+                {
+                    target -= 1
+                }
+                tokens[target].trail = mark
+                tokens.removeSubrange((target + 1)..<(i + words))
+                i = target + 1
             case .lineBreak(let count, let words):
                 tokens.replaceSubrange(i..<(i + words), with: [Token(breaks: count)])
             }

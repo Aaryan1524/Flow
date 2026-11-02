@@ -65,6 +65,15 @@ import Testing
         #expect(clean("We went to the store, um, yesterday.") == "We went to the store yesterday.")
     }
 
+    @Test func aSpokenCommaAfterAFillerLandsOnTheWordBeforeIt() {
+        #expect(clean("the report um comma go on") == "The report, go on.")
+        #expect(clean("we left uh period Then it rained") == "We left. Then it rained.")
+    }
+
+    @Test func removesAFillerThatARepeatedPhraseHidAtFirst() {
+        #expect(clean("Well, you know you know, it works.") == "Well, it works.")
+    }
+
     @Test func removesYouKnowOnlyWhenItIsAFiller() {
         #expect(clean("It was, you know, a long day.") == "It was a long day.")
         #expect(clean("You know, I think so.") == "I think so.")
@@ -271,10 +280,33 @@ import Testing
             "um so i i think we should uh go comma if you know it works period new paragraph thanks",
             "th- the plan, you know, is is ready question mark",
             "Hello comma world period",
+            "oh, um, never mind",
+            "the bolt is ten mm wide and long long ago she had a boo boo",
+            "over and over and over again, the the cat the the cat sat",
+            "see fig. below. no. it works. Dana, uh, can you look",
+            "the report um comma go on",
+            "well, well, you know you know comma that works",
         ]
         for sample in samples {
             let once = clean(sample)
-            #expect(clean(once) == once, "not stable: \(sample)")
+            #expect(clean(once) == once, "not stable: \(sample.debugDescription) -> \(once.debugDescription)")
+        }
+    }
+
+    @Test func cleaningCleanSentencesIsAFixedPoint() {
+        for sample in Self.cleanSentences {
+            let once = clean(sample)
+            #expect(clean(once) == once, "not stable: \(sample.debugDescription)")
+        }
+    }
+
+    @Test func cleaningDictationAgainChangesNothing() {
+        var random = SplitMix64(seed: 20_260_502)
+        for _ in 0..<1_000 {
+            let sample = Self.generatedDictation(&random)
+            let once = clean(sample)
+            let twice = clean(once)
+            #expect(twice == once, "not stable: \(sample.debugDescription) -> \(once.debugDescription) -> \(twice.debugDescription)")
         }
     }
 
@@ -730,6 +762,23 @@ extension RulesCleanerTests {
         "First, we wash. Second, we rinse.",
         "The city of Winston-Salem is in North Carolina.",
         "Pre- and post-processing both run.",
+        // Doubled words, units and abbreviations that are not mistakes.
+        "She has a boo boo on her knee.",
+        "Far far away there lived a king.",
+        "Long long ago there was a village.",
+        "It is a pom pom.",
+        "A can can hold five liters.",
+        "Night night, sleep tight.",
+        "Dum dum is a candy.",
+        "Over and over and over again.",
+        "Day by day by day.",
+        "Do do do.",
+        "I gave her her keys back.",
+        "The bolt is ten mm wide.",
+        "See fig. below for details.",
+        "Smith et al. showed the same effect.",
+        "Oh, never mind.",
+        "Dana, can you review this?",
         // Layout.
         "Dear team,\n\nThe release is ready.\n\nBest regards,\nDana",
         "Agenda\n\n1. Budget review.\n2. Hiring plan.\n3. Open questions.",
@@ -781,6 +830,31 @@ extension RulesCleanerTests {
         }
         let separator = [" ", " ", "\n", "\n\n"][Int(random.next() % 4)]
         return sentences.joined(separator: separator)
+    }
+}
+
+extension RulesCleanerTests {
+    /// Dictation with fillers, stutters, doubled words, units and abbreviations, cased or not. It has no spoken
+    /// punctuation: whether "period" is a command can depend on the words around it, which the first pass changes.
+    fileprivate static func generatedDictation(_ random: inout SplitMix64) -> String {
+        let pieces = [
+            "um", "uh", "hmm", "mm", "you know", "like", "i", "i", "we", "the", "the", "a", "to", "to", "is", "and", "so", "that",
+            "would", "can", "do", "boo boo", "far far", "night night", "think", "should", "go", "plan", "report", "river",
+            "ten", "twelve", "5", "mm", "fig.", "etc.", "vs.", "al.", "no.", "Dana", "Oh,", "well,", "I'm", "it's", "what",
+            "how", "over and over", "by day", "th-", "w-we",
+        ]
+        let count = 3 + Int(random.next() % 14)
+        var words: [String] = []
+        for _ in 0..<count {
+            let piece = pieces[Int(random.next() % UInt64(pieces.count))]
+            words.append(piece)
+            // A repeat of the last piece, so doubled and tripled words are common.
+            if random.next() % 5 == 0 { words.append(piece) }
+        }
+        var text = words.joined(separator: " ")
+        if random.next() % 3 == 0 { text = text.prefix(1).uppercased() + text.dropFirst() }
+        if random.next() % 3 == 0 { text += "." }
+        return text
     }
 }
 
