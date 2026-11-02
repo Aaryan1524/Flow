@@ -54,6 +54,7 @@ public enum WER {
         var pendingSentence = true
         var pendingCurrency: String?
         var endsSentence = false
+        var skipSpace = false
         let trimmed = CharacterSet(charactersIn: "'-")
 
         func finishToken() {
@@ -78,6 +79,10 @@ public enum WER {
         }
 
         for index in lowered.indices {
+            if skipSpace {
+                skipSpace = false
+                continue
+            }
             let scalar = lowered[index]
             let previous = index > 0 ? lowered[index - 1] : " "
             let next = index + 1 < lowered.count ? lowered[index + 1] : " "
@@ -94,6 +99,11 @@ public enum WER {
             }
             if numberAware, scalar == "." || scalar == "," || scalar == ":", isDigit(previous), isDigit(next), !token.isEmpty {
                 joins = true
+            }
+            // Speech recognisers write "3: 30" for "3:30".
+            if numberAware, scalar == ":", isDigit(previous), next == " ", index + 2 < lowered.count, isDigit(lowered[index + 2]), !token.isEmpty {
+                joins = true
+                skipSpace = true
             }
             if isWordScalar || joins {
                 if token.isEmpty {

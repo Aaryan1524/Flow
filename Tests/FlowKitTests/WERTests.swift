@@ -61,5 +61,7 @@ import Testing
         // tokens() is unchanged: numbers still split on punctuation
         #expect(WER.tokens(text) == ["at", "3", "30", "for", "1", "249", "99", "and", "15", "on", "v2", "4", "1"])
         #expect(WER.words("5. Next", numberAware: true).map(\.text) == ["5", "next"])
+        // speech recognisers write "3: 30" for "3:30"
+        #expect(WER.words("at 3: 30 p.m.", numberAware: true).map(\.text) == ["at", "3:30", "pm"])
     }
 }
