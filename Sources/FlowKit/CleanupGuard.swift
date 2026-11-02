@@ -268,17 +268,10 @@ public struct CleanupGuard: Sendable {
 
     // MARK: - Fillers
 
-    private static let discourseOpeners: Set<String> = ["so", "and", "but", "well", "okay", "ok", "yeah", "right", "then", "now", "anyway"]
-    /// After "you know" these make it a verb ("you know the answer"), not a filler.
-    private static let youKnowObjects: Set<String> = [
-        "the", "a", "an", "that", "what", "how", "where", "when", "why", "who", "which", "if", "whether", "him", "them", "me", "us",
-        "my", "your", "his", "her", "their", "our",
-    ]
-
     /// Marks um/uh, and the "you know" and "like" a speaker drops between commas. A bare "you know" or "like"
-    /// is ordinary language ("do you know the answer", "I like it", "I think you know") and must survive.
-    /// `strict` marks nothing beyond that: the guard also lets "so you know we need time" lose its "you know",
-    /// since the model has no commas to go by, but a loss report should not.
+    /// is ordinary language ("do you know the answer", "I like it", "I think you know", "so you know we need
+    /// time") and must survive. The one exception: a "like" right after a comma-bounded "you know," belongs to it
+    /// ("it takes, you know, like a couple of seconds"); a loss report (`strict`) does not make that exception.
     static func markingFillers(_ tokens: [Token], strict: Bool = false) -> [Token] {
         var result = tokens
         func endsClause(at next: Int) -> Bool {
@@ -294,15 +287,9 @@ public struct CleanupGuard: Sendable {
             } else if text == "like", tokens[i].afterComma, endsClause(at: i + 1) || (!strict && i > 0 && result[i - 1].isFiller) {
                 // ", like," and "you know, like": the comma before it marks it as speech filler.
                 result[i].isFiller = true
-            } else if text == "you", i + 1 < tokens.count, tokens[i + 1].text == "know" {
-                let leader = i > 0 ? tokens[i - 1].text : nil
-                let follower = i + 2 < tokens.count ? tokens[i + 2].text : nil
-                let commaBounded = tokens[i].afterComma && endsClause(at: i + 2)
-                let afterOpener = leader.map(discourseOpeners.contains) == true && follower.map(youKnowObjects.contains) != true
-                if commaBounded || (!strict && afterOpener) {
-                    result[i].isFiller = true
-                    result[i + 1].isFiller = true
-                }
+            } else if text == "you", i + 1 < tokens.count, tokens[i + 1].text == "know", tokens[i].afterComma, endsClause(at: i + 2) {
+                result[i].isFiller = true
+                result[i + 1].isFiller = true
             }
         }
         return result

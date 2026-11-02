@@ -171,8 +171,10 @@ import Testing
         #expect(trusts("we need twelve chairs I mean fourteen chairs for the room", "We need fourteen chairs for the room."))
     }
 
-    @Test func discountsFillersRepeatsAndYouKnowWhenMeasuringLoss() {
-        #expect(trusts("so you know we we need more time", "So we need more time."))
+    @Test func discountsFillersRepeatsAndACommaBoundedYouKnow() {
+        #expect(trusts("so, you know, we we need more time", "So we need more time."))
+        // Without commas it is a clause the speaker said, and the whitelist has no excuse for losing it.
+        #expect(!trusts("so you know we we need more time", "So we need more time."))
         #expect(trusts("i i think we should we should call the client back", "I think we should call the client back."))
         #expect(trusts("do you know where the station is", "Do you know where the station is?"))
     }
