@@ -66,13 +66,13 @@ private struct Boom: Error, LocalizedError {
         #expect(result.aiSeconds != nil)
     }
 
-    @Test func longTextGoesToTheAI() async {
-        // Distinct words: the rules would collapse repeats as a stutter.
-        let long = (1...40).map { "item\($0)" }.joined(separator: " ")
+    @Test func longTextWithoutACueSkipsTheAI() async {
+        // The AI only resolves self-corrections, so length alone is no reason to wait for it.
+        let long = (1...80).map { "item\($0)" }.joined(separator: " ")
         let ai = FakeCleaner { _ in "cleaned" }
         let result = await pipeline(ai: ai).clean(long, mode: .rulesAndAI)
-        #expect(ai.calls == 1)
-        #expect(result.usedAI)
+        #expect(ai.calls == 0)
+        #expect(!result.usedAI)
     }
 
     @Test func anUntrustedAnswerFallsBackToTheRulesOutput() async {
@@ -150,13 +150,16 @@ private struct Boom: Error, LocalizedError {
         #expect(result.aiSkippedBecause == "AI cleanup is unavailable")
     }
 
-    @Test func gateWantsLongTextAndCorrectionCuesOnly() {
-        let gate = CleanupGate(longTextWords: 30)
+    @Test func gateWantsCorrectionCuesOnly() {
+        let gate = CleanupGate()
         #expect(!gate.wantsAI(for: "Please send the report today."))
         #expect(gate.wantsAI(for: "Send it to Maria, no wait, send it to Marcus."))
         #expect(gate.wantsAI(for: "The deadline is Friday, I mean Monday."))
         #expect(gate.wantsAI(for: "On Tuesday, no, Wednesday."))
-        #expect(gate.wantsAI(for: Array(repeating: "ordinary", count: 31).joined(separator: " ")))
+        #expect(!gate.wantsAI(for: Array(repeating: "ordinary", count: 31).joined(separator: " ")))
+        // Cue words inside other words are not cues.
+        #expect(!gate.wantsAI(for: "Check for crash loops in the staging namespace."))
+        #expect(!gate.wantsAI(for: "He was unactually sorrynotsorry about it."))
     }
 }
 

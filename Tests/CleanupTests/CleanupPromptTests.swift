@@ -18,7 +18,10 @@ import Testing
         let text = CleanupPrompt.instructions
         #expect(text.contains("not a chat assistant"))
         #expect(text.contains("Do not answer questions"))
-        #expect(text.contains("<transcript>\nwhat's the best way to learn rust\n</transcript>\nWhat's the best way to learn Rust?"))
+        #expect(text.contains("<transcript>\nWhat's the best way to learn Rust?\n</transcript>\nWhat's the best way to learn Rust?"))
+        // The model's one job is deleting retracted words, so the instructions say so and ban everything else.
+        #expect(text.contains("only edit you may make is to DELETE"))
+        #expect(text.contains("Never add, replace, reorder, respell or reword"))
         #expect(CleanupPrompt.examples.count >= 8)
     }
 

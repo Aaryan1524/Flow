@@ -12,26 +12,35 @@ public enum CleanupMode: String, Sendable, CaseIterable {
     case rulesAndAI
 }
 
-/// Decides whether text is worth the AI step, which costs roughly half a second.
+/// Decides whether text is worth the AI step, which costs roughly half a second. The AI's only job is to resolve
+/// self-corrections, so text without a correction cue gains nothing from it, however long it is.
 public struct CleanupGate: Sendable {
-    /// Long dictation benefits from AI punctuation and paragraphing.
-    public var longTextWords: Int
-
-    public init(longTextWords: Int = 30) {
-        self.longTextWords = longTextWords
-    }
+    public init() {}
 
     /// Phrases that usually mean the speaker is taking something back. Broad on purpose: a false alarm only
     /// costs a little time, while a miss leaves "Tuesday, no, Wednesday" in the text.
     static let cues = [
         "scratch that", "strike that", "never mind", "nevermind", "make that", "i mean", "or rather", "no wait", "wait no",
-        "actually", "sorry", "oops", "correction", ", no,", ", no ", "rather than",
+        "actually", "sorry", "oops", "correction", ", no,", ", no ",
     ]
 
     public func wantsAI(for text: String) -> Bool {
-        if text.split(whereSeparator: \.isWhitespace).count >= longTextWords { return true }
         let lowered = text.lowercased()
-        return Self.cues.contains { lowered.contains($0) }
+        return Self.cues.contains { Self.contains(lowered, cue: $0) }
+    }
+
+    /// Whole words only, so "oops" is not found inside "loops" or "sorry" inside "sorrynotsorry".
+    private static func contains(_ text: String, cue: String) -> Bool {
+        var searchRange = text.startIndex..<text.endIndex
+        while let found = text.range(of: cue, range: searchRange) {
+            let before = found.lowerBound == text.startIndex ? nil : text[text.index(before: found.lowerBound)]
+            let after = found.upperBound == text.endIndex ? nil : text[found.upperBound]
+            let startsOnWord = !(cue.first?.isLetter == true) || before?.isLetter != true
+            let endsOnWord = !(cue.last?.isLetter == true) || after?.isLetter != true
+            if startsOnWord && endsOnWord { return true }
+            searchRange = found.upperBound..<text.endIndex
+        }
+        return false
     }
 }
 
@@ -71,13 +80,20 @@ public final class CleanupPipeline: Sendable {
     public init(
         rules: TextCleaner = RulesCleaner(), ai: TextCleaner?, gate: CleanupGate = CleanupGate(),
         timeout: Duration = .seconds(4),
-        isTrusted: @escaping Verdict = { CleanupGuard.standard.evaluate(raw: $0, cleaned: $1).isTrustworthy }
+        isTrusted: @escaping Verdict = CleanupPipeline.defaultVerdict
     ) {
         self.rules = rules
         self.ai = ai
         self.gate = gate
         self.timeout = timeout
         self.isTrusted = isTrusted
+    }
+
+    /// Two independent checks, both of which must pass. The first is the strict one: the AI may only have deleted
+    /// words a speaker took back. The second is the broader guard, kept as a second opinion.
+    public static let defaultVerdict: Verdict = { input, output in
+        DeleteOnlyCheck.isTrusted(input: input, output: output)
+            && CleanupGuard.standard.evaluate(raw: input, cleaned: output).isTrustworthy
     }
 
     public func clean(_ raw: String, mode: CleanupMode) async -> CleanupResult {
