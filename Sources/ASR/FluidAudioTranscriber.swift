@@ -38,7 +38,7 @@ public final class FluidAudioTranscriber: Transcriber {
     /// - Parameters:
     ///   - vocabulary: Names, products and identifiers to listen for. Empty means no boosting.
     ///   - minSimilarity: How close in spelling a term must be to the word it replaces, from 0 to 1.
-    ///     Higher means fewer wrong swaps and fewer fixes. FluidAudio's default is 0.55 for a vocabulary this size.
+    ///     Higher means fewer wrong swaps and fewer fixes. FluidAudio's default is 0.52, which made wrong swaps at every list size tried; the app passes 0.8.
     public init(model: Model, vocabulary: [String] = [], minSimilarity: Float? = nil) {
         self.model = model
         self.vocabulary = vocabulary
