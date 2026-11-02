@@ -1,3 +1,4 @@
+import FlowKit
 import Testing
 @testable import Cleanup
 
@@ -141,5 +142,65 @@ import Testing
         for sentence in ["You know what, just scratch this itch.", "You know what, scratch that plan for Friday.", "I need to scratch this off the list we made."] {
             #expect(DiscardCommands.apply(sentence) == sentence, "changed: \(sentence)")
         }
+    }
+
+    // MARK: - The speech engine's punctuation changes from run to run
+
+    /// The engine's verbatim output for real dictations, with what should be left afterwards.
+    private static let realDictations: [(said: String, kept: String)] = [
+        ("Uh so I'm planning to have a meeting tomorrow. Uh guys, what do you all think will be a good idea? One PM, two p you know what, scratch this. Uh we should have the meeting tomorrow at two p.m. and I would love to be uh hosting it and everyone should be there",
+            "We should have the meeting tomorrow at two p.m. and I would love to be hosting it and everyone should be there"),
+        ("So I'm planning to have a party hosted for tomorrow 1pm. Uh you know like to you know what, like just scratch this. Uh, we're having a party tomorrow at 1pm. Please do come.",
+            "We're having a party tomorrow at 1pm. Please do come."),
+        ("So I'm planning to have a party hosted for tomorrow 1pm 2pm. You know what, just scratch this, uh, we're planning to host a party for tomorrow at 1pm. Please do come.",
+            "We're planning to host a party for tomorrow at 1pm. Please do come."),
+        ("Uh Pyro guys what I'm planning is we should host a party tomorrow at 1pm you know 2pm you you know what just scratch this We are hosting a party tomorrow at 1pm Please do come uh get your friends and your family and we have fun",
+            "We are hosting a party tomorrow at 1pm Please do come get your friends and your family and we have fun"),
+        ("So, I was thinking to have the meeting tomorrow at 1 p.m. But I don't know what will be a good time. I mean you know, scratch that. Let's have a meeting tomorrow at 2 p.m. and Kubernetes pgvector line chain Snowflake.",
+            "Let's have a meeting tomorrow at 2 p.m. and Kubernetes pgvector line chain Snowflake."),
+        ("So I was thinking to have the meeting tomorrow at 1pm but I don't know what will be a good time. I mean you know just scratch that. Let's have the meeting tomorrow at 2pm guys and Kubernetes pgvector LangChain Snowflake.",
+            "Let's have the meeting tomorrow at 2pm guys and Kubernetes pgvector LangChain Snowflake."),
+        ("So I mean like I was thinking to start the meeting tomorrow at 1pm but I don't know what will be a good time. You know what scratch it, I think the meeting tomorrow should be at 2pm",
+            "I think the meeting tomorrow should be at 2pm"),
+    ]
+
+    private static func withoutPunctuation(_ text: String) -> String {
+        text.filter { !",.?!;:".contains($0) }
+    }
+
+    @Test func realDictationsResolveWithTheEnginesOwnPunctuation() {
+        for (said, kept) in Self.realDictations {
+            #expect(WER.tokens(rules.cleaned(said)) == WER.tokens(kept), "said: \(said)")
+        }
+    }
+
+    @Test func realDictationsResolveWithNoPunctuationAtAll() {
+        for (said, kept) in Self.realDictations {
+            let bare = Self.withoutPunctuation(said)
+            #expect(WER.tokens(rules.cleaned(bare)) == WER.tokens(kept), "said: \(bare)")
+        }
+    }
+
+    @Test func realDictationsResolveWithNoPunctuationAndNoCapitals() {
+        for (said, kept) in Self.realDictations {
+            let bare = Self.withoutPunctuation(said).lowercased()
+            #expect(WER.tokens(rules.cleaned(bare)) == WER.tokens(kept), "said: \(bare)")
+        }
+    }
+
+    @Test func ordinarySentencesStayUnchangedEvenWithoutPunctuation() {
+        let sentences = [
+            "You know what just scratch this itch before the meeting",
+            "You know what scratch that plan for Friday",
+            "I need to scratch this off the list we made",
+            "We just scratch that part and we move on",
+            "You can just scratch it you will see",
+            "He told me to just scratch that we laughed",
+            "Well scratch it and see what happens",
+            "Just scratch this and that from the list",
+            "Scratch that itch before the meeting",
+            "Okay scratch all of these off the list",
+        ]
+        for sentence in sentences { #expect(DiscardCommands.apply(sentence) == sentence, "changed: \(sentence)") }
     }
 }

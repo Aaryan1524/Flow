@@ -20,7 +20,7 @@ public struct CleanupGate: Sendable {
     /// Phrases that usually mean the speaker is taking something back. Broad on purpose: a false alarm only
     /// costs a little time, while a miss leaves "Tuesday, no, Wednesday" in the text.
     static let cues = [
-        "scratch that", "strike that", "never mind", "nevermind", "make that", "i mean", "or rather", "no wait", "wait no",
+        "scratch that", "scratch this", "scratch it", "you know what", "strike that", "never mind", "nevermind", "make that", "i mean", "or rather", "no wait", "wait no",
         "actually", "sorry", "oops", "correction", ", no,", ", no ",
     ]
 
