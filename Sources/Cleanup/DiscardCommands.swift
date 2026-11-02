@@ -27,7 +27,8 @@ enum DiscardCommands {
     /// Where a command may start: the beginning, or just after a sentence or clause break.
     private static let anyBoundary = #"(^|[.!?…]\s+|[,;:]\s+)"#
     private static let sentenceBoundary = #"(^|[.!?…]\s+)"#
-    private static let leadIn = #"(?:(?:you know what|okay|ok|so|well|alright|right|actually)\s*,?\s+){0,2}"#
+    /// The things people say on the way into a retraction: "I mean, you know, just scratch that".
+    private static let leadIn = #"(?:(?:i mean|you know what|you know|just|okay|ok|so|well|alright|right|actually|like|yeah|um|uh|hmm|then)\s*,?\s+){0,5}"#
     /// "scratch all of these off the list" is ordinary English, not a command.
     private static let notFollowedByAParticle = #"(?!(?:off|out|from|of|on|with|away|through|up|down|in|into|at|over)\b)"#
 
@@ -70,11 +71,70 @@ enum DiscardCommands {
         if let match = discardLastSentence.matches(in: text, range: full).last {
             let boundary = match.range(at: 1)
             let cueStart = boundary.upperBound
-            candidates.append(Command(start: match.range.location, end: match.range.upperBound, dropFrom: previousSentenceStart(ns, before: boundary, cueStart: cueStart)))
+            let nearest = previousSentenceStart(ns, before: boundary, cueStart: cueStart)
+            let reach = earliestRepeatedSentenceStart(ns, before: boundary, cueEnd: match.range.upperBound, nearest: nearest)
+            candidates.append(Command(start: match.range.location, end: match.range.upperBound, dropFrom: reach))
         }
         guard let command = candidates.max(by: { $0.start < $1.start }) else { return nil }
         let kept = ns.substring(to: command.dropFrom) + ns.substring(from: command.end)
         return kept.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    // MARK: - How far back "scratch that" reaches
+
+    /// Words too common to show that two sentences are about the same thing.
+    private static let commonWords: Set<String> = [
+        "the", "and", "but", "for", "with", "that", "this", "these", "those", "have", "has", "had", "are", "was", "were", "will",
+        "would", "should", "could", "can", "not", "you", "your", "our", "we're", "let's", "lets", "just", "about", "from", "into",
+        "its", "it's", "than", "then", "there", "their", "they", "them", "what", "when", "where", "who", "how", "why", "also",
+        "going", "think", "thinking", "know", "mean", "like", "okay", "yeah", "well", "guys",
+    ]
+
+    private static func contentWords(_ text: String) -> Set<String> {
+        let words = text.lowercased().split { !($0.isLetter || $0.isNumber || $0 == "'") }.map(String.init)
+        return Set(words.filter { $0.count >= 3 && !commonWords.contains($0) })
+    }
+
+    /// "Scratch that" takes back the sentence before it. If what comes after repeats the content of an earlier recent
+    /// sentence ("...the meeting tomorrow at 1pm. I don't know. Scratch that. Let's have the meeting tomorrow at
+    /// 2pm."), the thought being retracted started there, so everything from that sentence on goes. At least two
+    /// content words must be shared, and only the last few sentences are considered.
+    private static func earliestRepeatedSentenceStart(_ ns: NSString, before boundary: NSRange, cueEnd: Int, nearest: Int) -> Int {
+        let text = ns as String
+        let chars = Array(text)
+        let cueStart = boundary.upperBound
+        guard nearest < cueStart, cueEnd < chars.count else { return nearest }
+
+        // The replacement is the sentence right after the command.
+        var replacementEnd = cueEnd
+        while replacementEnd < chars.count {
+            if ".!?…".contains(chars[replacementEnd]), isRealSentenceEnd(chars, at: replacementEnd) { break }
+            replacementEnd += 1
+        }
+        let replacement = contentWords(String(chars[cueEnd..<min(replacementEnd + 1, chars.count)]))
+        guard !replacement.isEmpty else { return nearest }
+
+        // Start positions of the sentences before the command, nearest first, at most four.
+        var starts: [Int] = [nearest]
+        var searchFrom = nearest
+        while starts.count < 4, searchFrom > 0 {
+            // The previous sentence's terminator is the last non-space character before this sentence starts.
+            var terminator = searchFrom - 1
+            while terminator >= 0, chars[terminator].isWhitespace { terminator -= 1 }
+            guard terminator >= 0 else { break }
+            let gap = NSRange(location: terminator, length: searchFrom - terminator)
+            let previous = previousSentenceStart(ns, before: gap, cueStart: searchFrom)
+            if previous >= searchFrom { break }
+            starts.append(previous)
+            searchFrom = previous
+        }
+        var earliest = nearest
+        for (index, start) in starts.enumerated() {
+            let end = index == 0 ? cueStart : starts[index - 1]
+            let sentence = contentWords(String(chars[start..<min(end, chars.count)]))
+            if sentence.intersection(replacement).count >= 2 { earliest = start }
+        }
+        return earliest
     }
 
     private static let abbreviations: Set<String> = [
