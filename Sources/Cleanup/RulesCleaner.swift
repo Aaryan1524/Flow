@@ -413,7 +413,7 @@ public struct RulesCleaner: TextCleaner {
                     if !Self.endsSentence(previous.trail) { kept[last].trail = punctuation }
                 } else if !hasNext {
                     if previous.trail == "," { kept[last].trail = "" }
-                } else if previous.trail == ",", punctuation == ",", !Self.introWords.contains(previous.key) {
+                } else if previous.trail == ",", punctuation == ",", !Self.keepsCommaBeforeFiller(kept) {
                     kept[last].trail = ""
                 }
             }
@@ -437,6 +437,16 @@ public struct RulesCleaner: TextCleaner {
         let key = token.key
         let parts = key.split(separator: "-")
         return beforeUnit.contains(key) || (!parts.isEmpty && parts.allSatisfy { cardinals.contains(String($0)) })
+    }
+
+    /// Whether the comma after the last kept word stays once the filler after it is gone. An opening word that is not a
+    /// function word is set off by its comma ("Oh, um, never mind", "Dana, uh, can you review this"), so the comma
+    /// stays; "I, um, think" and "we should, uh, go" have no comma of their own.
+    private static func keepsCommaBeforeFiller(_ kept: [Token]) -> Bool {
+        guard let previous = kept.last else { return false }
+        if introWords.contains(previous.key) { return true }
+        let opensSentence = kept.count < 2 || kept[kept.count - 2].isBreak || endsSentence(kept[kept.count - 2].trail)
+        return opensSentence && !isFunctionWord(previous.key)
     }
 
     /// Number of tokens at `index` that form a filler, or 0.

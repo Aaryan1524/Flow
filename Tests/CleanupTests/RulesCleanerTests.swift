@@ -53,6 +53,18 @@ import Testing
         #expect(clean("Well, uh, maybe.") == "Well, maybe.")
     }
 
+    @Test func keepsTheCommaAfterAnOpeningWordThatIsNotAFunctionWord() {
+        #expect(clean("Oh, um, never mind.") == "Oh, never mind.")
+        #expect(clean("Dana, uh, can you review this?") == "Dana, can you review this?")
+        #expect(clean("Yesterday, um, we shipped it.") == "Yesterday, we shipped it.")
+        #expect(clean("oh, um, never mind") == "Oh, never mind.")
+        #expect(clean("Look, you know, it is fine.") == "Look, it is fine.")
+        // A function word, or a word in the middle of a sentence, has no comma of its own to keep.
+        #expect(clean("I, um, think so.") == "I think so.")
+        #expect(clean("The, uh, report is late.") == "The report is late.")
+        #expect(clean("We went to the store, um, yesterday.") == "We went to the store yesterday.")
+    }
+
     @Test func removesYouKnowOnlyWhenItIsAFiller() {
         #expect(clean("It was, you know, a long day.") == "It was a long day.")
         #expect(clean("You know, I think so.") == "I think so.")
