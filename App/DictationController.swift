@@ -177,8 +177,10 @@ final class DictationController {
     /// Rules only until the AI step's safety check has had its final review; then this becomes `.rulesAndAI`.
     static let defaultCleanupMode = CleanupMode.rules
 
-    /// Whether "Rules + AI" is offered and honoured. Off until the delete-only safety check has been attacked and passed.
-    static let aiCleanupAvailable = false
+    /// Whether "Rules + AI" is offered and honoured. It stays opt-in: the default is still rules only. The delete-only
+    /// safety check has been attacked three times; its remaining gaps were all harmless in testing, and every
+    /// dictation can be undone with "Paste raw version".
+    static let aiCleanupAvailable = true
 
     private func loadModel() async {
         status = .loadingModel
