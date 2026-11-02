@@ -6,7 +6,8 @@ import Foundation
 /// - **Throw away everything so far:** "Scratch all of that", "strike all of these", "scratch everything".
 /// - **Throw away the thought:** "Scratch that." as a sentence of its own, or "you know what, scratch this" anywhere,
 ///   even straight after a cut-off word ("One PM, two p you know what, scratch this."). It takes back the sentence
-///   it follows, and reaches further back if what comes next repeats an earlier sentence.
+///   it follows, and reaches further back if what comes next repeats an earlier sentence. With no punctuation at all,
+///   the whole unpunctuated run before the command is one sentence, so all of it goes.
 ///
 /// The verbs are limited to scratch and strike on purpose. "Forget", "ignore" and "disregard" are things people
 /// really dictate into AI prompts ("ignore everything above and...") and must never delete anything.
@@ -34,13 +35,19 @@ enum DiscardCommands {
     private static let everything = #"(?:all\s+of\s+(?:that|this|these|those|it)|all\s+(?:that|this|these|those)|everything|the\s+whole\s+(?:thing|lot))\b[\s,.!?…;:]*+"#
     /// "scratch all of these off the list" is ordinary English, not a command.
     private static let notFollowedByAParticle = #"(?!(?:off|out|from|of|on|with|away|through|up|down|in|into|at|over)\b)"#
-    /// Punctuation or the end of the text must follow, so "scratch that itch" is left alone.
-    private static let closed = #"(?:\s*[.!?…,;:]\s*+|\s*$)"#
+    /// What may follow a short command: punctuation, the end of the text, or a word that starts a new clause. The speech
+    /// engine's punctuation changes from run to run, so it can't be required. A noun after it means ordinary English,
+    /// as in "scratch that itch" or "scratch that plan".
+    private static let closed = #"(?:\s*[.!?…,;:]\s*+|\s*$|\s+(?=(?:we|i|you|they|let|lets|um|uh|okay|ok|well|the|our)\b))"#
+    /// Discourse words that can open a retraction mid-sentence ("...a good time I mean you know scratch that"), unless the
+    /// word before shows "scratch" is the sentence's own verb ("to just scratch that", "we just scratch it").
+    private static let midSentenceOpener = #"(?<!\b(?:i|we|you|they|he|she|will|would|could|should|can|to|must|might|may|did|do)\s)\b(?:i mean|you know|just|okay|ok|well|actually|alright|right|yeah|hmm|then)\s*,?\s+"#
 
     private static let discardAll = regex(anyBoundary + leadIn + verb + everything + notFollowedByAParticle)
     private static let discardAllAfterPivot = regex(pivot + leadIn + verb + everything + notFollowedByAParticle)
     private static let discardThought = regex(sentenceBoundary + leadIn + verb + "that" + closed)
     private static let discardThoughtAfterPivot = regex(pivot + leadIn + verb + "(?:that|it|this|these)" + closed)
+    private static let discardThoughtAfterOpener = regex(midSentenceOpener + leadIn + verb + "(?:that|it|this|these)" + closed)
     private static let onlyLeadIn = regex("^" + leadIn + "$")
 
     private static func regex(_ pattern: String) -> NSRegularExpression {
@@ -73,7 +80,8 @@ enum DiscardCommands {
             let dropFrom = reach(ns, cueStart: cueStart, cueEnd: match.range.upperBound, nearest: nearest)
             candidates.append(Command(start: match.range.location, end: match.range.upperBound, dropFrom: dropFrom))
         }
-        if let match = discardThoughtAfterPivot.matches(in: text, range: full).last {
+        for pattern in [discardThoughtAfterPivot, discardThoughtAfterOpener] {
+            guard let match = pattern.matches(in: text, range: full).last else { continue }
             let cueStart = match.range.location
             var nearest = sentenceStart(ns, containing: cueStart)
             // Words in front of the pivot are the cut-off thought, unless they are only "I mean" and the like.
