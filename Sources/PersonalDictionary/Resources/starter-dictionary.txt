@@ -1,0 +1,15 @@
+# Built-in starter dictionary (placeholder: the full list is being written and tested).
+Vercel
+Supabase
+Anthropic
+Ollama
+Parakeet
+FluidAudio
+Xcode
+GitHub
+OpenAI
+PyTorch
+kubectl
+Kubernetes
+PostgreSQL
+TypeScript
