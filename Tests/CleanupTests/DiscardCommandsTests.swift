@@ -162,6 +162,12 @@ import Testing
             "Let's have the meeting tomorrow at 2pm guys and Kubernetes pgvector LangChain Snowflake."),
         ("So I mean like I was thinking to start the meeting tomorrow at 1pm but I don't know what will be a good time. You know what scratch it, I think the meeting tomorrow should be at 2pm",
             "I think the meeting tomorrow should be at 2pm"),
+        ("Hey guys, I'm planning to have a party hosted at my place at uh 2 um uh 1 to 2pm. You know what scratch this? Uh I'm planning to host a party at my place at 2pm tomorrow. Uh love to see you all there.",
+            "I'm planning to host a party at my place at 2pm tomorrow. Love to see you all there."),
+        ("So we should have a party at my p you know what, scratch this, uh let's do something else as well. Uh b scratch this all. Uh so we are planning to have an amazing hosting event at my place.",
+            "So we are planning to have an amazing hosting event at my place."),
+        ("So when I talk about uh something like this, uh maybe like uh cancel this, uh scratch this, uh we should work on something more important than the vision.",
+            "We should work on something more important than the vision."),
     ]
 
     private static func withoutPunctuation(_ text: String) -> String {
@@ -200,6 +206,11 @@ import Testing
             "Just scratch this and that from the list",
             "Scratch that itch before the meeting",
             "Okay scratch all of these off the list",
+            "The cats scratch it all day",
+            "Scratch it all day if you like",
+            "If it itches scratch it then apply the cream",
+            "We uh scratch this part of the plan",
+            "I will uh scratch it you know",
         ]
         for sentence in sentences { #expect(DiscardCommands.apply(sentence) == sentence, "changed: \(sentence)") }
     }

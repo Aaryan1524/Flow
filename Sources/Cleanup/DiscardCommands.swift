@@ -13,6 +13,9 @@ import Foundation
 /// really dictate into AI prompts ("ignore everything above and...") and must never delete anything.
 enum DiscardCommands {
     static func apply(_ text: String) -> String {
+        // Most dictations have no command, so don't run any pattern over them.
+        guard text.range(of: "scratch", options: .caseInsensitive) != nil || text.range(of: "strike", options: .caseInsensitive) != nil
+        else { return text }
         var current = text
         // Several commands in one dictation: the last one is resolved first, then the rest.
         for _ in 0..<8 {
@@ -39,9 +42,15 @@ enum DiscardCommands {
     /// engine's punctuation changes from run to run, so it can't be required. A noun after it means ordinary English,
     /// as in "scratch that itch" or "scratch that plan".
     private static let closed = #"(?:\s*[.!?…,;:]\s*+|\s*$|\s+(?=(?:we|i|you|they|let|lets|um|uh|okay|ok|well|the|our)\b))"#
-    /// Discourse words that can open a retraction mid-sentence ("...a good time I mean you know scratch that"), unless the
+    /// Discourse words, hesitations or a cut-off letter that can open a retraction mid-sentence ("...a good time I mean you
+    /// know scratch that", "cancel this, uh scratch this", "b scratch this all"), unless the
     /// word before shows "scratch" is the sentence's own verb ("to just scratch that", "we just scratch it").
-    private static let midSentenceOpener = #"(?<!\b(?:i|we|you|they|he|she|will|would|could|should|can|to|must|might|may|did|do)\s)\b(?:i mean|you know|just|okay|ok|well|actually|alright|right|yeah|hmm|then)\s*,?\s+"#
+    private static let midSentenceOpener = #"(?<!\b(?:i|we|you|they|he|she|will|would|could|should|can|to|must|might|may|did|do)\s)\b(?:i mean|you know|just|okay|ok|well|actually|alright|right|yeah|hmm|then|um|uh|[b-hj-z])\s*,?\s+"#
+
+    /// "Scratch this all": the short way of saying everything, which needs the same care as the short commands.
+    private static let thisAll = #"(?:this|that|it)\s+all"# + closed
+    private static let discardAllShort = regex(anyBoundary + leadIn + verb + thisAll)
+    private static let discardAllShortAfterOpener = regex(midSentenceOpener + leadIn + verb + thisAll)
 
     private static let discardAll = regex(anyBoundary + leadIn + verb + everything + notFollowedByAParticle)
     private static let discardAllAfterPivot = regex(pivot + leadIn + verb + everything + notFollowedByAParticle)
@@ -69,7 +78,7 @@ enum DiscardCommands {
         let full = NSRange(location: 0, length: ns.length)
         var candidates: [Command] = []
 
-        for pattern in [discardAll, discardAllAfterPivot] {
+        for pattern in [discardAll, discardAllAfterPivot, discardAllShort, discardAllShortAfterOpener] {
             if let match = pattern.matches(in: text, range: full).last {
                 candidates.append(Command(start: match.range.location, end: match.range.upperBound, dropFrom: 0))
             }
