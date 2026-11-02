@@ -1,6 +1,7 @@
 import ASR
 import AppKit
 import Audio
+import Cleanup
 import FlowKit
 import Foundation
 import History
@@ -11,7 +12,7 @@ import OSLog
 
 /// Ties the pieces together: hold Fn, record, transcribe, paste, log.
 ///
-/// Phase 1 inserts the raw speech-to-text output. Cleanup and number conversion come later.
+/// The transcript goes through the cleanup pipeline (rules, then the AI when needed) before it is pasted.
 @MainActor
 @Observable
 final class DictationController {
@@ -31,6 +32,8 @@ final class DictationController {
     private(set) var status = Status.starting
     private(set) var permissions = Permissions()
     private(set) var lastTranscript = ""
+    /// What the speech engine heard before cleanup, so the cleanup can be undone with "Paste raw version".
+    private(set) var lastRawTranscript = ""
     /// True once the Fn key listener is actually attached, which is stronger than the permission reading as granted.
     private(set) var listening = false
     /// One line about the last dictation that didn't land, e.g. "not pasted: you switched apps".
@@ -46,6 +49,11 @@ final class DictationController {
     @ObservationIgnored private let transcriber = FluidAudioTranscriber(model: .v2)
     @ObservationIgnored private let paster = ClipboardPaster()
     @ObservationIgnored private let history = HistoryLog()
+    @ObservationIgnored private let aiCleaner = AppleCleaner()
+    /// Rules only until the AI model has reported that it is available.
+    @ObservationIgnored private var pipeline = CleanupPipeline(ai: nil)
+    @ObservationIgnored private var aiReady = false
+    @ObservationIgnored private var pollTicks = 0
     @ObservationIgnored private let log = Logger(subsystem: "com.aaryan.flow", category: "dictation")
 
     /// App that was in front when the key went down. The text goes there, or nowhere.
@@ -102,7 +110,9 @@ final class DictationController {
             if !ClipboardPaster.hasAccessibilityPermission { ClipboardPaster.requestAccessibilityPermission() }
             refreshPermissions()
             prewarmRecorder()
+            async let aiReady: Void = prepareAICleanup()
             await loadModel()
+            await aiReady
         }
 
         // Permissions can be granted at any time, so keep checking and attach the key listener once allowed.
@@ -116,11 +126,40 @@ final class DictationController {
                 refreshGlobeKeySetting()
                 refreshMicrophones()
                 prewarmRecorder()
+                pollTicks += 1
+                if !aiReady, pollTicks % 15 == 0 { await prepareAICleanup() }  // about every 30 s
                 await pruneHistoryIfDue()
                 try? await Task.sleep(for: .seconds(2))
             }
         }
     }
+
+    /// Warms up Apple's on-device model so the first cleanup isn't slow. If it isn't available, rules still work.
+    /// Retried from the poll loop, because the model may still be downloading at launch.
+    private func prepareAICleanup() async {
+        guard !aiReady else { return }
+        do {
+            try await aiCleaner.prepare()
+            pipeline = CleanupPipeline(ai: aiCleaner)
+            aiReady = true
+        } catch {
+            log.info("AI cleanup unavailable: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    /// Not set yet means the default. A stored value this build doesn't know falls back to the safe rules-only mode,
+    /// and so does "Rules + AI" while the AI step is switched off.
+    private var cleanupMode: CleanupMode {
+        guard let stored = UserDefaults.standard.string(forKey: "cleanupMode") else { return Self.defaultCleanupMode }
+        let mode = CleanupMode(rawValue: stored) ?? .rules
+        return mode == .rulesAndAI && !Self.aiCleanupAvailable ? .rules : mode
+    }
+
+    /// Rules only until the AI step's safety check has had its final review; then this becomes `.rulesAndAI`.
+    static let defaultCleanupMode = CleanupMode.rules
+
+    /// Whether "Rules + AI" is offered and honoured. Off until the delete-only safety check has been attacked and passed.
+    static let aiCleanupAvailable = false
 
     private func loadModel() async {
         status = .loadingModel
@@ -266,7 +305,18 @@ final class DictationController {
 
         do {
             let transcript = try await transcriber.transcribe(samples: samples)
-            let text = transcript.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            let raw = transcript.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !raw.isEmpty else {
+                status = .ready
+                return
+            }
+
+            let mode = cleanupMode
+            let cleanupStart = ContinuousClock.now
+            let cleaned = await pipeline.clean(raw, mode: mode)
+            let cleanupMs = cleanupStart.duration(to: .now).milliseconds
+            let text = cleaned.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            // Cleanup can legitimately leave nothing, e.g. when the whole dictation was "um".
             guard !text.isEmpty else {
                 status = .ready
                 return
@@ -275,10 +325,12 @@ final class DictationController {
             let insertStart = ContinuousClock.now
             let result = await paster.insert(text, into: targetApp)
             let done = ContinuousClock.now
-            let insertMs = insertStart.duration(to: done).milliseconds
-            let releaseToText = released.duration(to: done).milliseconds
+            let timing = Timing(
+                audioSeconds: audioSeconds, firstAudioMs: firstAudioMs, transcribeMs: transcript.seconds * 1000,
+                cleanupMs: cleanupMs, insertMs: insertStart.duration(to: done).milliseconds,
+                releaseToTextMs: released.duration(to: done).milliseconds)
             log.info(
-                "release to text \(releaseToText, privacy: .public) ms (transcribe \(transcript.seconds * 1000, privacy: .public) ms, insert \(insertMs, privacy: .public) ms)"
+                "release to text \(timing.releaseToTextMs, privacy: .public) ms (transcribe \(timing.transcribeMs, privacy: .public) ms, cleanup \(timing.cleanupMs, privacy: .public) ms, insert \(timing.insertMs, privacy: .public) ms, ai \(cleaned.usedAI, privacy: .public))"
             )
 
             switch result {
@@ -287,11 +339,13 @@ final class DictationController {
                 notice = "Not pasted: a secure field is active"
             case .notPasted(let reason):
                 lastTranscript = text
+                lastRawTranscript = raw
                 notice = Self.describe(reason)
-                await record(text, result, audioSeconds, firstAudioMs, transcript.seconds * 1000, insertMs, releaseToText)
+                await record(cleaned, text, result, timing, mode)
             default:
                 lastTranscript = text
-                await record(text, result, audioSeconds, firstAudioMs, transcript.seconds * 1000, insertMs, releaseToText)
+                lastRawTranscript = raw
+                await record(cleaned, text, result, timing, mode)
             }
             status = .ready
         } catch {
@@ -300,15 +354,24 @@ final class DictationController {
         }
     }
 
+    private struct Timing {
+        var audioSeconds: Double
+        var firstAudioMs: Double?
+        var transcribeMs: Double
+        var cleanupMs: Double
+        var insertMs: Double
+        var releaseToTextMs: Double
+    }
+
     private func record(
-        _ text: String, _ result: InsertionResult, _ audioSeconds: Double, _ firstAudioMs: Double?, _ transcribeMs: Double,
-        _ insertMs: Double, _ releaseToText: Double
+        _ cleaned: CleanupResult, _ finalText: String, _ result: InsertionResult, _ timing: Timing, _ mode: CleanupMode
     ) async {
         guard UserDefaults.standard.object(forKey: "saveHistory") as? Bool ?? true else { return }
         let entry = HistoryEntry(
-            app: targetApp, engine: transcriber.name, rawText: text, finalText: text, outcome: result.logValue,
-            audioSeconds: audioSeconds, firstAudioMs: firstAudioMs, transcribeMs: transcribeMs, insertMs: insertMs,
-            releaseToTextMs: releaseToText)
+            app: targetApp, engine: transcriber.name, rawText: cleaned.raw, finalText: finalText, outcome: result.logValue,
+            audioSeconds: timing.audioSeconds, firstAudioMs: timing.firstAudioMs, transcribeMs: timing.transcribeMs,
+            insertMs: timing.insertMs, releaseToTextMs: timing.releaseToTextMs, cleanupMode: mode.rawValue,
+            cleanupMs: timing.cleanupMs, usedAI: cleaned.usedAI, aiSkippedBecause: cleaned.aiSkippedBecause)
         try? await history.append(entry)
     }
 
@@ -339,6 +402,19 @@ final class DictationController {
         default: return "Not pasted"
         }
     }
+
+    /// Undo for cleanup: inserts what the speech engine heard, before any cleanup.
+    func pasteLastRaw() {
+        let text = lastRawTranscript
+        guard status == .ready, !text.isEmpty else { return }
+        Task {
+            try? await Task.sleep(for: .milliseconds(150))
+            let result = await paster.insert(text, into: nil)
+            if result != .pasted { notice = Self.describe(result) }
+        }
+    }
+
+    var canPasteRaw: Bool { !lastRawTranscript.isEmpty && lastRawTranscript != lastTranscript }
 
     func revealHistory() {
         let url = HistoryLog.defaultURL

@@ -29,6 +29,7 @@ public final class AppleCleaner: TextCleaner, Sendable {
         let chunks = TextChunker.split(raw, maxCharacters: CleanupPrompt.maxChunkCharacters)
         var cleaned: [String] = []
         for chunk in chunks {
+            try Task.checkCancellation()  // stop early when the pipeline has given up
             cleaned.append(try await cleanChunk(chunk.text))
         }
         return CleanupPrompt.join(cleaned, separators: chunks.map(\.separator))
@@ -40,7 +41,7 @@ public final class AppleCleaner: TextCleaner, Sendable {
 
     private func cleanChunk(_ text: String) async throws -> String {
         let options = GenerationOptions(
-            sampling: .greedy,
+            samplingMode: .greedy,
             maximumResponseTokens: CleanupPrompt.maxOutputTokens(forInput: text))
         do {
             let response = try await makeSession().respond(to: CleanupPrompt.userMessage(for: text), options: options)

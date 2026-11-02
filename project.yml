@@ -28,6 +28,8 @@ targets:
         product: Insertion
       - package: Flow
         product: History
+      - package: Flow
+        product: Cleanup
     info:
       path: App/Info.plist
       properties:
