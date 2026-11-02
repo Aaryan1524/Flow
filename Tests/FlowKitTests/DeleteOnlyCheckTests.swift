@@ -220,4 +220,98 @@ import Testing
         _ = DeleteOnlyCheck.evaluate(input: adversarial, output: "no")
         #expect(start.duration(to: .now) < .seconds(1))
     }
+
+    // MARK: - Found by the final adversarial review
+
+    @Test func aScratchThatSentenceMustTakeBackTheWholeSentenceNotItsTail() {
+        // Keeping the front of the retracted sentence would fuse it onto the replacement and flip the meaning.
+        expectRejected([
+            ("Do not give the patient aspirin. Scratch that. Give the patient ibuprofen.", "Do not give the patient ibuprofen."),
+            ("Never send the file to Dana. Scratch that. Send the file to Priya.", "Never send the file to Priya."),
+            ("We will not ship on Friday. Scratch that. Ship on Monday.", "We will not ship on Monday."),
+            ("Please do not call Dana. Never mind. Call Priya.", "Please do not call Priya."),
+            ("Maybe give aspirin. Never mind. Give ibuprofen.", "Maybe give ibuprofen."),
+        ])
+        expectTrusted([("Add milk to the list. Scratch that. Add oat milk.", "Add oat milk.")])
+    }
+
+    @Test func deletingOnlyTheCueLeavesTheRetractedTextBehind() {
+        expectRejected([
+            ("Send it to Dana. Scratch that.", "Send it to Dana."),
+            ("Cancel the order for Dana, never mind.", "Cancel the order for Dana."),
+            ("Send it to Dana, no wait, send it to Priya.", "Send it to Dana, send it to Priya."),
+            ("Pay Dana five hundred dollars, no wait, six hundred dollars.", "Pay Dana five hundred dollars, six hundred dollars."),
+        ])
+    }
+
+    @Test func ordinaryProseContainingACueLikePhraseIsNotGutted() {
+        expectRejected([
+            ("Dana will make that, Priya will bring the cake.", "Priya will bring the cake."),
+            ("Tom will scratch that, Ann will paint.", "Ann will paint."),
+            ("She said never mind, but I could tell she was upset.", "But I could tell she was upset."),
+            ("Dana said never mind, Priya agreed.", "Priya agreed."),
+            ("I called Dana, actually Priya picked up.", "I called Priya picked up."),
+            ("The scan showed no tumor, no wait time was needed.", "The scan showed time was needed."),
+        ])
+    }
+
+    @Test func aRestatedTailMayNotSmuggleOutANegatorOrANumber() {
+        expectRejected([
+            ("I do not like the red one, no wait, the blue one.", "I do the blue one."),
+            ("Transfer 5000 dollars to Maria, no wait, to Marcus.", "Transfer to Marcus."),
+            ("Send three copies to Dana, no wait, three copies to Priya.", "Send copies to Priya."),
+            ("Don\u{2019}t send it to Dana, no wait, don\u{2019}t send it to Priya.", "Send it to Priya."),
+            ("Send it to Dana nowhere, no wait, send it nowhere to Priya.", "Send it to Priya."),
+            ("I bought apples, pears, no wait, oranges and plums.", "I bought oranges and plums."),
+        ])
+    }
+
+    @Test func correctionsWithNumbersNamesAndAbbreviationsStillWork() {
+        expectTrusted([
+            ("It costs twenty five dollars, no wait, thirty dollars.", "It costs thirty dollars."),
+            ("Add two cups of flour, no wait, three cups of flour.", "Add three cups of flour."),
+            ("Meet at 5 p.m., no wait, 6 p.m.", "Meet at 6 p.m."),
+            ("Call Dr. Smith, no wait, Dr. Jones.", "Call Dr. Jones."),
+            ("Send it to Mr. Lee, I mean Mr. Park.", "Send it to Mr. Park."),
+        ])
+    }
+
+    @Test func aCaseChangeAfterAnAbbreviationIsNotASentenceStart() {
+        expectRejected([
+            ("We spoke with the U.S. polish embassy.", "We spoke with the U.S. Polish embassy."),
+            ("Use e.g. apple pie today.", "Use e.g. Apple pie today."),
+        ])
+    }
+
+    @Test func invisibleCharactersAfterWhitespaceAreSymbols() {
+        expectRejected([("Send it to Dana.", "Send it to Dana. \u{0301}\u{0302}"), ("Send it to Dana.", "Send it to Dana. \u{200D}")])
+    }
+
+    @Test func aLongRunOfPunctuationDoesNotStallTheCheck() {
+        let junk = String(repeating: ".", count: 30_000)
+        let start = ContinuousClock.now
+        _ = DeleteOnlyCheck.evaluate(input: "Send it \(junk)", output: "Send it \(junk)")
+        _ = DeleteOnlyCheck.evaluate(input: "Send it", output: "Send it \(String(repeating: "!", count: 20_000))")
+        #expect(start.duration(to: .now) < .seconds(1))
+        let huge = String(repeating: "word ", count: 20_000)
+        #expect(DeleteOnlyCheck.evaluate(input: huge, output: huge) == .tooLong)
+    }
+
+    @Test func punctuationAndLineBreaksCanOnlyDisappearNeverMoveOrAppear() {
+        expectRejected([
+            ("Is it ready? Or not.", "Is it ready. Or not?"),
+            ("Send (the draft) to Dana.", "Send the (draft to) Dana."),
+            ("He said \"go now\" and left.", "He said go \"now and\" left."),
+            ("Dear team,\n\nThe release is ready.", "Dear team, The release\n\nis ready."),
+            ("Stop. Do not go.", "Stop do. Not go."),
+        ])
+    }
+
+    @Test func aKeptNegatorBeforeTheDraftWouldGovernTheReplacement() {
+        expectRejected([
+            ("Never send it to Dana, I mean, send it to Priya.", "Never send it to Priya."),
+            ("We will not ship Friday, or rather ship Monday.", "We will not ship Monday."),
+            ("Do not give aspirin, actually make that, give ibuprofen.", "Do not give ibuprofen."),
+        ])
+    }
 }
