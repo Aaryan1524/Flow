@@ -444,21 +444,29 @@ public struct RulesCleaner: TextCleaner {
 
     // MARK: - Stutters and repeats
 
-    /// Words that are legitimately doubled, so "had had" and "bye bye" survive.
-    private static let legitimateDoubles: Set<String> = [
-        "had", "that", "very", "really", "bye", "no", "so", "ha", "yeah", "hello", "sorry", "please", "knock", "go",
-    ]
-    /// Words people stutter on: pronouns, articles, auxiliaries, prepositions, conjunctions and their contractions.
-    private static let functionWords: Set<String> = [
+    /// Function words that are legitimately doubled, so "had had" and "gave her her keys" survive. A content word is
+    /// never collapsed, so "bye bye" and "boo boo" need no entry here.
+    private static let legitimateDoubles: Set<String> = ["had", "that", "so", "her"]
+    /// Words people stutter on: pronouns, articles, prepositions, conjunctions, copulas and their contractions. A
+    /// doubled one is a stutter wherever it sits, and these are the only single words that are collapsed on their own.
+    private static let stutterWords: Set<String> = [
         "i", "we", "you", "he", "she", "it", "they", "me", "us", "him", "them", "the", "a", "an", "my", "our", "your",
         "his", "her", "its", "their", "this", "that", "these", "those", "is", "are", "was", "were", "am", "be", "been",
-        "have", "has", "had", "do", "does", "did", "will", "would", "can", "could", "should", "may", "might", "must",
         "to", "of", "in", "on", "at", "for", "with", "from", "by", "as", "about", "into", "and", "but", "or", "if", "so",
         "because", "than", "then", "not", "there", "what", "when", "where", "who", "how", "why", "which", "more",
         "some", "any", "all", "just", "also", "i'm", "i'll", "i've", "i'd", "we're", "we'll", "we've", "we'd", "you're",
         "you'll", "you've", "he's", "she's", "it's", "they're", "that's", "there's", "don't", "didn't", "can't",
         "won't", "isn't",
     ]
+    /// Modals and auxiliaries double as nouns and names ("a can can hold", "Will will come"), so they count as a stutter
+    /// only right behind a personal pronoun: "we would would like". "do", "does" and "did" are left out entirely, since
+    /// "I do do care" is emphatic.
+    private static let auxiliaryWords: Set<String> = [
+        "can", "will", "would", "could", "should", "may", "might", "must", "have", "has",
+    ]
+    private static let personalPronouns: Set<String> = ["i", "we", "you", "he", "she", "it", "they"]
+    /// Every word that may start a repeated phrase ("we should we should") or follow a stuttered first letter.
+    private static let functionWords = stutterWords.union(auxiliaryWords).union(["do", "does", "did", "had"])
     /// Short function words that stutter across a comma: "I, I think".
     private static let commaStutterWords: Set<String> = [
         "i", "we", "you", "they", "he", "she", "it", "the", "a", "an", "to", "of", "in", "on", "for", "with", "and", "but",
@@ -525,33 +533,35 @@ public struct RulesCleaner: TextCleaner {
             guard length == 1, lastTrail == ",", commaStutterWords.contains(first[start].key) else { return false }
         }
 
-        // Three or more copies in a row ("ho ho ho") are said on purpose, unless it is a function word ("the the the").
-        var copies = 2
-        var cursor = start + 2 * length
-        while sameBlock(tokens, start, cursor, length) { copies += 1; cursor += length }
-        cursor = start - length
-        while sameBlock(tokens, start, cursor, length) { copies += 1; cursor -= length }
+        if length == 1 { return isSingleWordStutter(tokens, at: start, trailed: !lastTrail.isEmpty) }
 
-        if length == 1 {
-            let key = first[start].key
-            if lastTrail.isEmpty, legitimateDoubles.contains(key) { return false }
-            let isFunction = isFunctionWord(key)
-            if copies > 2, !isFunction { return false }
-            // "Bora Bora" and "Mahi Mahi" are names, not stutters.
-            if !isFunction, second[start + 1].core.first?.isUppercase == true { return false }
-            return true
-        }
         // A repeated phrase is a stutter when it starts on a function word ("we should we should"); "New York New
         // York" and "good morning good morning" are not.
-        guard copies == 2, isFunctionWord(first[start].key) else { return false }
-        return !second.allSatisfy { $0.core.first?.isUppercase == true }
+        guard isFunctionWord(first[start].key), !second.allSatisfy({ $0.core.first?.isUppercase == true }) else { return false }
+        // Exactly two copies. A third one, whole or partial, makes it a chain said on purpose: "go team go team go
+        // team", "over and over and over again", "day by day by day".
+        let end = start + 2 * length
+        let continuesBefore = start > 0 && sameWord(tokens[start - 1], tokens[start + length - 1])
+        let continuesAfter = end < tokens.count && sameWord(tokens[end], tokens[end - length])
+        return !continuesBefore && !continuesAfter
     }
 
-    private static func sameBlock(_ tokens: [Token], _ a: Int, _ b: Int, _ length: Int) -> Bool {
-        guard a >= 0, b >= 0, a + length <= tokens.count, b + length <= tokens.count else { return false }
-        return (0..<length).allSatisfy {
-            tokens[a + $0].isWord && tokens[b + $0].isWord && tokens[a + $0].key == tokens[b + $0].key
-        }
+    /// Whether the doubled word at `index` is a stutter. Only a function word can be: a doubled content word is
+    /// reduplication or emphasis ("boo boo", "far far away", "Night night") however it is cased.
+    private static func isSingleWordStutter(_ tokens: [Token], at index: Int, trailed: Bool) -> Bool {
+        let key = normalizedKey(tokens[index])
+        if !trailed, legitimateDoubles.contains(key) { return false }
+        // "The The" is a name; only the pronoun is capitalized wherever it stands.
+        let isPronounI = key == "i" || key.hasPrefix("i'")
+        if tokens[index + 1].core.first?.isUppercase == true, !isPronounI { return false }
+        if stutterWords.contains(key) { return true }
+        guard auxiliaryWords.contains(key), index > 0 else { return false }
+        let before = tokens[index - 1]
+        return before.isWord && before.trail.isEmpty && personalPronouns.contains(normalizedKey(before))
+    }
+
+    private static func sameWord(_ a: Token, _ b: Token) -> Bool {
+        a.isWord && b.isWord && a.key == b.key
     }
 
     private static func isFunctionWord(_ key: String) -> Bool {

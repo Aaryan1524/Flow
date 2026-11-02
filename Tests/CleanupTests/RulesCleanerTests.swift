@@ -376,6 +376,73 @@ extension RulesCleanerTests {
     }
 }
 
+// MARK: - Doubled words that are not stutters
+
+extension RulesCleanerTests {
+    @Test func keepsReduplicatedContentWordsInPunctuatedText() {
+        let samples = [
+            "She has a boo boo on her knee.",
+            "Far far away there lived a king.",
+            "Long long ago there was a village.",
+            "It is a pom pom.",
+            "A can can hold five liters.",
+            "Night night, sleep tight.",
+            "Dum dum is a candy.",
+            "The choo choo train left at noon.",
+            "Do do do.",
+        ]
+        for sample in samples {
+            #expect(clean(sample) == sample, "changed: \(sample.debugDescription) -> \(clean(sample).debugDescription)")
+        }
+    }
+
+    @Test func keepsReduplicatedContentWordsInUncasedText() {
+        #expect(clean("she has a boo boo on her knee") == "She has a boo boo on her knee.")
+        #expect(clean("long long ago there was a village") == "Long long ago there was a village.")
+        #expect(clean("a can can hold five liters") == "A can can hold five liters.")
+        #expect(clean("the pom pom fell off") == "The pom pom fell off.")
+    }
+
+    @Test func keepsIdiomsThatRepeatAWordAroundAConnective() {
+        let samples = [
+            "Over and over and over again.",
+            "Day by day by day.",
+            "He fell back time after time after time.",
+            "Step by step by step we climbed.",
+        ]
+        for sample in samples {
+            #expect(clean(sample) == sample, "changed: \(sample.debugDescription) -> \(clean(sample).debugDescription)")
+        }
+        #expect(clean("over and over and over again") == "Over and over and over again.")
+    }
+
+    @Test func collapsesStuttersOnFunctionWordsInAnyCase() {
+        #expect(clean("The the report is late.") == "The report is late.")
+        #expect(clean("It is the the best option.") == "It is the best option.")
+        #expect(clean("She said that we we should go.") == "She said that we should go.")
+        #expect(clean("It was to to late.") == "It was to late.")
+        #expect(clean("i i think the the plan is is solid") == "I think the plan is solid.")
+    }
+
+    @Test func keepsDoubledFunctionWordsThatAreRealWords() {
+        let samples = [
+            "I gave her her keys back.",
+            "They were big fans of The The.",
+            "I do do care about this.",
+        ]
+        for sample in samples {
+            #expect(clean(sample) == sample, "changed: \(sample.debugDescription) -> \(clean(sample).debugDescription)")
+        }
+    }
+
+    @Test func collapsesAStutteredAuxiliaryOnlyRightAfterAPronoun() {
+        #expect(clean("we would would like that") == "We would like that.")
+        #expect(clean("they said we should should wait") == "They said we should wait.")
+        #expect(clean("Would would you mind?") == "Would would you mind?")
+        #expect(clean("Will will come to the party.") == "Will will come to the party.")
+    }
+}
+
 // MARK: - Closing punctuation and the word I
 
 extension RulesCleanerTests {
