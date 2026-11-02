@@ -38,9 +38,9 @@ enum DiscardCommands {
     private static let closed = #"(?:\s*[.!?…,;:]\s*+|\s*$)"#
 
     private static let discardAll = regex(anyBoundary + leadIn + verb + everything + notFollowedByAParticle)
-    private static let discardAllAfterPivot = regex(pivot + verb + everything + notFollowedByAParticle)
+    private static let discardAllAfterPivot = regex(pivot + leadIn + verb + everything + notFollowedByAParticle)
     private static let discardThought = regex(sentenceBoundary + leadIn + verb + "that" + closed)
-    private static let discardThoughtAfterPivot = regex(pivot + verb + "(?:that|it|this|these)" + closed)
+    private static let discardThoughtAfterPivot = regex(pivot + leadIn + verb + "(?:that|it|this|these)" + closed)
     private static let onlyLeadIn = regex("^" + leadIn + "$")
 
     private static func regex(_ pattern: String) -> NSRegularExpression {

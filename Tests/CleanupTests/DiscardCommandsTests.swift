@@ -123,4 +123,23 @@ import Testing
     @Test func anEmojiInTheTextDoesNotShiftWhereSentencesAreCut() {
         #expect(DiscardCommands.apply("Great news 🎉🎉. Buy milk. Scratch that. Buy bread.") == "Great news 🎉🎉. Buy bread.")
     }
+
+    // MARK: - Words between the pivot and the command
+
+    // These are the speech engine's exact output for two real dictations, fillers included.
+    @Test func likeJustBetweenYouKnowWhatAndScratchDoesNotHideTheCommand() {
+        let said = "So I'm planning to have a party hosted for tomorrow 1pm. Uh you know like to you know what, like just scratch this. Uh, we're having a party tomorrow at 1pm. Please do come."
+        #expect(RulesCleaner().cleaned(said) == "We're having a party tomorrow at 1pm. Please do come.")
+    }
+
+    @Test func justBetweenYouKnowWhatAndScratchDoesNotHideTheCommand() {
+        let said = "So I'm planning to have a party hosted for tomorrow 1pm 2pm. You know what, just scratch this, uh, we're planning to host a party for tomorrow at 1pm. Please do come."
+        #expect(RulesCleaner().cleaned(said) == "We're planning to host a party for tomorrow at 1pm. Please do come.")
+    }
+
+    @Test func aNounAfterTheCommandStillMeansItIsOrdinaryEnglish() {
+        for sentence in ["You know what, just scratch this itch.", "You know what, scratch that plan for Friday.", "I need to scratch this off the list we made."] {
+            #expect(DiscardCommands.apply(sentence) == sentence, "changed: \(sentence)")
+        }
+    }
 }
