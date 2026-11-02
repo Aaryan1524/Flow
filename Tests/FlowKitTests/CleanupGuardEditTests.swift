@@ -163,6 +163,28 @@ import Testing
         #expect(!trusts("call me at five five five one two three four", "Call me at 555-1243."))
     }
 
+    @Test func acceptsUrlsEmailsPathsAndUnicodeLeftAlone() {
+        for text in [
+            "Open https://example.com/docs?id=5 and email dana@example.com about /usr/local/bin and caf\u{00E9} \u{2615}",
+            "The report is due on 2025-03-04, see build_notes.md and v2.4.1 of getUserById.",
+            "Dana\u{2019}s caf\u{00E9} serves \u{00FC}ber-fresh bread at 9:30.",
+        ] {
+            #expect(trusts(text, text), "\(text)")
+        }
+    }
+
+    @Test func aWordMayBeSplitOrJoinedWithoutChangingItsLetters() {
+        #expect(trusts("send me an e mail", "Send me an email."))
+        #expect(trusts("send me an email", "Send me an e-mail."))
+        #expect(trusts("it is a well known fact", "It is a well-known fact."))
+        #expect(!trusts("send me an e mail", "Send me an mail."))
+    }
+
+    @Test func aMuchLongerOutputIsRejectedAsTooLong() {
+        let raw = "please remember to water the plants"
+        #expect(failure(raw, raw + ". " + raw + ". " + raw + ".") == .tooLong)
+    }
+
     @Test func aMillimetreIsNotAFiller() {
         #expect(trusts("mm hmm okay sure", "Okay, sure."))
         #expect(!trusts("the part is 5 mm wide", "The part is 5 wide."))
