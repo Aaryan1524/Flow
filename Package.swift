@@ -71,7 +71,7 @@ let package = Package(
         .testTarget(name: "HotkeyTests", dependencies: ["Hotkey"], path: "Tests/HotkeyTests"),
         .testTarget(name: "AudioTests", dependencies: ["Audio"], path: "Tests/AudioTests"),
         .testTarget(name: "InsertionTests", dependencies: ["Insertion"], path: "Tests/InsertionTests"),
-        .testTarget(name: "PersonalDictionaryTests", dependencies: ["PersonalDictionary"], path: "Tests/PersonalDictionaryTests"),
+        .testTarget(name: "PersonalDictionaryTests", dependencies: ["PersonalDictionary", "Cleanup"], path: "Tests/PersonalDictionaryTests"),
         .testTarget(name: "HistoryTests", dependencies: ["History"], path: "Tests/HistoryTests"),
         .testTarget(name: "CleanupTests", dependencies: ["FlowKit", "Cleanup"], path: "Tests/CleanupTests"),
     ]
