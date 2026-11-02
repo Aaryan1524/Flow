@@ -39,6 +39,20 @@ import Testing
         #expect(DiscardCommands.apply("We could hire a designer. Strike that. Let's keep it in house.") == "Let's keep it in house.")
     }
 
+    @Test func scratchThatReachesBackToTheSentenceTheReplacementRepeats() {
+        // The real dictation: the 1pm thought spans two sentences, and the replacement repeats its first one.
+        let said = "So, I was thinking to have the meeting tomorrow at 1 p.m. But I don't know what will be a good time. I mean you know, scratch that. Let's have a meeting tomorrow at 2 p.m. and Kubernetes pgvector LangChain Snowflake."
+        #expect(DiscardCommands.apply(said) == "Let's have a meeting tomorrow at 2 p.m. and Kubernetes pgvector LangChain Snowflake.")
+        let noPunctuation = "So I was thinking to have the meeting tomorrow at 1pm but I don't know what will be a good time. I mean you know just scratch that. Let's have the meeting tomorrow at 2pm guys and Kubernetes pgvector LangChain Snowflake."
+        #expect(DiscardCommands.apply(noPunctuation) == "Let's have the meeting tomorrow at 2pm guys and Kubernetes pgvector LangChain Snowflake.")
+    }
+
+    @Test func aReplacementThatRepeatsOnlyTheNearestSentenceTakesBackOnlyThat() {
+        #expect(DiscardCommands.apply("Add eggs. Add milk to the list. Scratch that. Add oat milk to the list.") == "Add eggs. Add oat milk to the list.")
+        // Sharing a single content word is not enough to reach further back.
+        #expect(DiscardCommands.apply("We ship Friday. Dana owns the release. The budget is tight. Scratch that. Hire a contractor.") == "We ship Friday. Dana owns the release. Hire a contractor.")
+    }
+
     @Test func onlyTheOneSentenceBeforeIsRemoved() {
         #expect(DiscardCommands.apply("Buy eggs. Buy milk. Scratch that. Buy bread.") == "Buy eggs. Buy bread.")
     }
