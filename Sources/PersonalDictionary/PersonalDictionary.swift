@@ -89,12 +89,15 @@ public struct PersonalDictionary: Sendable, Equatable {
         "maps", "music", "photos", "books", "news", "stocks", "home", "weather", "clock", "notes", "files", "preview",
         "terminal", "console", "docker", "git", "make", "just", "task", "fly", "render", "railway", "heroku", "netlify",
         "cloud", "run", "lambda", "glue", "step", "bedrock", "athena", "redshift", "aurora", "dynamo", "kinesis", "pulsar",
-        "storm", "airflow", "prefect", "dagster", "kedro", "ray", "dask", "polars", "pandas", "numpy", "scipy", "torch",
-        "keras", "jax", "mamba", "phi", "llama", "mistral", "falcon", "bloom", "orca", "vicuna", "alpaca", "gemma", "qwen",
+        "storm", "airflow", "prefect", "dagster", "kedro", "ray", "dask", "polars", "pandas", "torch",
+        "keras", "jax", "mamba", "phi", "llama", "mistral", "falcon", "bloom", "orca", "vicuna", "alpaca",
     ]
 
     /// Terms to give the speech engine, your own first. Short terms, everyday words and plain numbers are left out,
-    /// and `limit` caps the list because a longer list makes wrong swaps and slows each dictation.
+    /// and `limit` caps the list because a longer list makes wrong swaps.
+    /// 250 is the largest list that made no wrong swaps in flow-eval at a minimum similarity of 0.8 (on the first draft
+    /// of the starter list, 400 terms made one and 622 made three, before the terms behind them were removed); at
+    /// FluidAudio's default similarity of 0.52 even 100 terms swapped 15 words. The app must pass at least 0.8.
     public func boostTerms(limit: Int = 250) -> [String] {
         var seen = Set<String>()
         var terms: [String] = []
