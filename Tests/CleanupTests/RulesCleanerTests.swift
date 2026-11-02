@@ -427,6 +427,15 @@ extension RulesCleanerTests {
         #expect(clean("maybe i wanted more time") == "Maybe I wanted more time.")
         #expect(clean("i'm sure i'll finish and i've checked") == "I'm sure I'll finish and I've checked.")
     }
+
+    @Test func capitalizesIBeforeAnyVerbAtTheStartOfAClause() {
+        #expect(clean("we talked and i ate lunch") == "We talked and I ate lunch.")
+        #expect(clean("when i misplace my keys") == "When I misplace my keys.")
+        #expect(clean("sorry, i met him yesterday") == "Sorry, I met him yesterday.")
+        #expect(clean("print i then print j") == "Print i then print j.")
+        #expect(clean("pass i to the function") == "Pass i to the function.")
+        #expect(clean("the loop runs while i is less than ten") == "The loop runs while i is less than ten.")
+    }
 }
 
 // MARK: - Hyphen stutters and command names

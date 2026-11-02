@@ -8,6 +8,10 @@ import Foundation
 /// capitalization and spacing, and swaps dictionary terms for their canonical spelling. Text that is
 /// already clean passes through unchanged. It does not resolve self-corrections; that takes a model.
 ///
+/// When unsure it leaves the text alone: a punctuation word is a command only when nothing around it makes it a
+/// noun ("a long period", "split on comma"), a repeat is a stutter only when it reads like one ("the the", not
+/// "Bora Bora" or "ho ho ho"), and "?" is added only to a plainly spoken question.
+///
 /// Whitespace contract: line structure survives (every blank line, each line's leading indentation, tabs between
 /// words). Only these are normalized: CRLF becomes LF, a run of spaces inside a line becomes one space, and
 /// trailing whitespace is dropped. Input with no words in it ("...", "?") is returned trimmed but otherwise as is.
@@ -648,13 +652,30 @@ public struct RulesCleaner: TextCleaner {
         }
     }
 
+    /// What follows a variable named i: "i plus one", "i is less than ten", "i goes from 0 to 9".
+    private static let variableFollowers: Set<String> = [
+        "as", "in", "to", "from", "through", "till", "plus", "minus", "times", "over", "modulo", "mod", "equals",
+        "equal", "is", "less", "greater", "smaller", "bigger", "larger", "by", "at", "of", "on", "squared", "goes",
+        "starts", "runs", "ranges", "counts", "increments", "iterates", "points", "refers", "represents", "holds",
+        "stores", "and", "or",
+    ]
+    /// Words after which a new clause, and so a subject, can begin: "and i ate", "when i misplace".
+    private static let clauseOpeners: Set<String> = [
+        "and", "but", "so", "or", "if", "when", "while", "because", "that", "then", "maybe", "perhaps", "since", "though",
+        "although", "unless", "until", "once", "whether", "where", "what", "how", "why", "who", "after", "before",
+    ]
+
     private static func isPronoun(_ tokens: [Token], at index: Int) -> Bool {
-        let previous = index > 0 && tokens[index - 1].isWord && tokens[index - 1].trail.isEmpty ? normalizedKey(tokens[index - 1]) : nil
+        let before = index > 0 ? tokens[index - 1] : nil
+        let previous = before?.isWord == true && before?.trail.isEmpty == true ? before.map(normalizedKey) : nil
         if let previous, beforePronoun.contains(previous) { return true }
         if let previous, beforeVariable.contains(previous) { return false }
         guard tokens[index].trail.isEmpty, index + 1 < tokens.count, tokens[index + 1].isWord else { return false }
         let next = normalizedKey(tokens[index + 1])
-        return pronounFollowers.contains(next) || next.hasSuffix("n't") || next.hasSuffix("ed") || next.hasSuffix("ly")
+        if pronounFollowers.contains(next) || next.hasSuffix("n't") || next.hasSuffix("ed") || next.hasSuffix("ly") { return true }
+        // Any other word: the pronoun only where a subject can stand, which is the start of a clause.
+        guard next.first?.isLetter == true, !variableFollowers.contains(next) else { return false }
+        return previous == nil || clauseOpeners.contains(previous ?? "")
     }
 
     private func capitalizeSentences(_ tokens: inout [Token]) {
